@@ -1,0 +1,2 @@
+# CST projects are compressed binary containers; never attempt text diffs.
+*.cst binary
