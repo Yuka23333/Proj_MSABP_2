@@ -1,0 +1,24 @@
+# Minimal runtime for one CST simulation worker ("Maid").
+#
+# CST's Python API is not downloaded from PyPI.  The final pip requirement
+# installs the link wheel shipped with CST Studio Suite 2025 and makes the
+# local CST Python libraries visible to this environment.
+name: cst_maid
+
+channels:
+  - conda-forge
+
+dependencies:
+  # CST 2025 integration is verified with CPython 3.11 on Windows.
+  - python=3.11
+  - pip
+
+  # Geometry generation, Sobol CSV handling, and headless diagnostic plots.
+  - numpy=2.3.*
+  - scipy=1.16.*
+  - pandas=2.3.*
+  - shapely=2.1.*
+  - matplotlib-base=3.10.*
+
+  - pip:
+      - "cst-studio-suite-link @ file:///C:/Program%20Files%20(x86)/CST%20Studio%20Suite%202025/Library/Python/repo/simple/cst_studio_suite_link-2025.0.1249836.778-py3-none-any.whl"
