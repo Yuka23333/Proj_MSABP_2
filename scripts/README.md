@@ -3,11 +3,20 @@
 本目录只放可直接运行的流程入口：
 
 - `optimization/`：生成候选点或启动优化循环；
+- `geometry/`：二维参数化几何、合法性检查和预览；
 - `simulation/`：创建算例、运行 CST、导出结果；
 - `postprocessing/`：汇总指标、生成图表和报告；
 - `utilities/`：数据检查、格式转换等独立小工具。
 
 脚本应尽量保持轻量，只处理命令行参数、配置加载和流程编排。可复用实现放在 `src/msabp_opt/`，并为脚本提供 `if __name__ == "__main__":` 入口。
+
+## 完整天线几何
+
+`geometry/antenna_outline.py` 在被导入时通过
+`generate_complete_antenna_point_lists()` 返回 Patch、对称 slot 和对称 guide
+三条显式闭合点列。终端直接运行时只打印这三条列表；从 IDE 按 F5/调试运行时，
+会显示包含基板、反射板凹口、外槽、内槽、CPW slot/stub 和 CPW guide 的完整版
+分层预览。
 
 ## CST 独立项目验证
 

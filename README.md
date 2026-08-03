@@ -18,6 +18,7 @@
 ├─ docs/                       # 设计说明、实验记录和技术文档
 ├─ notebooks/                  # 探索分析；成熟逻辑应迁移到 src/
 ├─ scripts/                    # 可直接运行的薄入口
+│  ├─ geometry/
 │  ├─ optimization/
 │  ├─ simulation/
 │  ├─ postprocessing/
