@@ -1,8 +1,8 @@
 """Dependency-free HTTP transport for Princess and Maid.
 
-Remote Maids make outbound requests to Princess after a short SSH wake-up.
-Each Maid then runs locally on its host and opens the local headless CST process;
-no interactive desktop and no inbound port on a Maid host are required.
+Remote Maids make outbound requests to Princess after a device-local Maid Bell
+wakes them.  Each Maid opens its local headless CST process; no interactive
+desktop is required.
 """
 
 from __future__ import annotations
@@ -109,6 +109,8 @@ class PrincessRequestHandler(BaseHTTPRequestHandler):
                 return
             raise ApiError(HTTPStatus.NOT_FOUND, "unknown endpoint")
         except ApiError as exc:
+            if exc.status == HTTPStatus.UNAUTHORIZED:
+                self._discard_small_request_body()
             self._send_error(exc.status, str(exc))
         except (ProtocolError, ValueError, json.JSONDecodeError) as exc:
             self._send_error(HTTPStatus.BAD_REQUEST, str(exc))
@@ -128,6 +130,17 @@ class PrincessRequestHandler(BaseHTTPRequestHandler):
         expected = f"Bearer {self.server.api_token}"
         if not hmac.compare_digest(supplied, expected):
             raise ApiError(HTTPStatus.UNAUTHORIZED, "invalid bearer token")
+
+    def _discard_small_request_body(self) -> None:
+        """Avoid a Windows TCP reset hiding a small authenticated error body."""
+
+        raw = self.headers.get("Content-Length")
+        try:
+            length = int(raw) if raw is not None else 0
+        except ValueError:
+            return
+        if 0 < length <= self.server.json_limit_bytes:
+            self.rfile.read(length)
 
     def _content_length(self, *, maximum: int) -> int:
         raw = self.headers.get("Content-Length")

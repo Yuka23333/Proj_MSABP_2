@@ -19,11 +19,12 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PureWindowsPath
 from typing import Any
 from uuid import uuid4
 
+from .bell import BellError, MaidBellClient
 from .config import DeviceConfig, LaunchMode
 
 
@@ -42,6 +43,7 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 PopenFactory = Callable[..., Any]
+BellClientFactory = Callable[..., MaidBellClient]
 
 
 class TransportError(RuntimeError):
@@ -79,6 +81,7 @@ class DoctorReport:
     scheduled_task_exists: bool | None
     python_version: str | None
     modules: tuple[ModuleCheck, ...]
+    bell_reachable: bool | None = None
     errors: tuple[str, ...] = ()
 
     @property
@@ -96,6 +99,8 @@ class DoctorReport:
             missing.append("maid_entrypoint")
         if self.scheduled_task_exists is False:
             missing.append("scheduled_task")
+        if self.bell_reachable is False:
+            missing.append("maid_bell")
         missing.extend(check.name for check in self.modules if not check.available)
         return tuple(missing)
 
@@ -697,6 +702,7 @@ def doctor_device(
     *,
     runner: CommandRunner = _default_runner,
     ssh_executable: str = "ssh",
+    bell_client_factory: BellClientFactory = MaidBellClient,
 ) -> DoctorReport:
     """Read-check Python, dependencies, project, runtime, and launch fallback."""
 
@@ -735,7 +741,11 @@ def doctor_device(
             "python": python_payload,
             "errors": errors,
         }
-        return _doctor_from_payload(device, payload)
+        return _with_bell_probe(
+            device,
+            _doctor_from_payload(device, payload),
+            bell_client_factory=bell_client_factory,
+        )
 
     probe_b64 = base64.b64encode(_python_probe_source().encode("utf-8")).decode(
         "ascii"
@@ -786,9 +796,13 @@ def doctor_device(
             action="Maid doctor",
         )
         payload = _json_object_from_output(result.stdout or "")
-        return _doctor_from_payload(device, payload)
+        return _with_bell_probe(
+            device,
+            _doctor_from_payload(device, payload),
+            bell_client_factory=bell_client_factory,
+        )
     except TransportError as exc:
-        return DoctorReport(
+        report = DoctorReport(
             device_id=device.id,
             python_path=device.python_path,
             python_exists=False,
@@ -803,6 +817,37 @@ def doctor_device(
             modules=_module_checks(None),
             errors=(str(exc),),
         )
+        return _with_bell_probe(
+            device,
+            report,
+            bell_client_factory=bell_client_factory,
+        )
+
+
+def _with_bell_probe(
+    device: DeviceConfig,
+    report: DoctorReport,
+    *,
+    bell_client_factory: BellClientFactory,
+) -> DoctorReport:
+    if device.launch_mode is not LaunchMode.BELL:
+        return report
+    try:
+        client = bell_client_factory(
+            str(device.bell_host),
+            device.bell_port,
+            timeout=device.bell_connect_timeout_seconds,
+        )
+        response = client.ping()
+        if response.get("device_id") != device.id:
+            raise BellError("Bell device_id does not match the registry")
+    except Exception as exc:
+        return replace(
+            report,
+            bell_reachable=False,
+            errors=(*report.errors, f"Maid Bell probe failed: {exc}"),
+        )
+    return replace(report, bell_reachable=True)
 
 
 def default_maid_arguments(device: DeviceConfig) -> tuple[str, ...]:
@@ -828,6 +873,8 @@ def launch_maid(
     runner: CommandRunner = _default_runner,
     popen_factory: PopenFactory = subprocess.Popen,
     ssh_executable: str = "ssh",
+    bell_token: str | None = None,
+    bell_client_factory: BellClientFactory = MaidBellClient,
 ) -> LaunchReceipt:
     """Wake one Maid without retaining a Princess-to-Maid SSH channel."""
 
@@ -864,6 +911,44 @@ def launch_maid(
             command=command,
             stdout_path=None,
             stderr_path=None,
+        )
+
+    if device.launch_mode is LaunchMode.BELL:
+        if not isinstance(bell_token, str) or len(bell_token) < 32:
+            raise TransportError("bell launch requires the current run API token")
+        try:
+            client = bell_client_factory(
+                str(device.bell_host),
+                device.bell_port,
+                timeout=device.bell_connect_timeout_seconds,
+            )
+            response = client.wake(
+                device_id=device.id,
+                runtime_config_path=device.resolved_runtime_config_path,
+                api_token=bell_token,
+            )
+        except BellError as exc:
+            raise TransportError(f"Maid Bell launch failed on {device.id}: {exc}") from exc
+        pid_value = response.get("pid")
+        if isinstance(pid_value, bool) or not isinstance(pid_value, int) or pid_value < 1:
+            raise TransportError("Maid Bell returned no valid PID")
+        stdout_path = response.get("stdout_path")
+        stderr_path = response.get("stderr_path")
+        if not isinstance(stdout_path, str) or not stdout_path:
+            raise TransportError("Maid Bell returned no stdout log path")
+        if not isinstance(stderr_path, str) or not stderr_path:
+            raise TransportError("Maid Bell returned no stderr log path")
+        return LaunchReceipt(
+            device_id=device.id,
+            launch_mode=device.launch_mode,
+            pid=pid_value,
+            command=(
+                "maid-bell",
+                f"{device.bell_host}:{device.bell_port}",
+                device.resolved_runtime_config_path,
+            ),
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
         )
 
     if device.launch_mode is LaunchMode.SCHEDULED_TASK:
@@ -974,6 +1059,8 @@ def start_maid(
     runner: CommandRunner = _default_runner,
     popen_factory: PopenFactory = subprocess.Popen,
     ssh_executable: str = "ssh",
+    bell_token: str | None = None,
+    bell_client_factory: BellClientFactory = MaidBellClient,
 ) -> LaunchReceipt:
     """Compatibility spelling for :func:`launch_maid`."""
 
@@ -983,4 +1070,6 @@ def start_maid(
         runner=runner,
         popen_factory=popen_factory,
         ssh_executable=ssh_executable,
+        bell_token=bell_token,
+        bell_client_factory=bell_client_factory,
     )

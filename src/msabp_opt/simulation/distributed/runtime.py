@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
-from .config import DeviceConfig, DeviceRegistry
+from .config import DeviceConfig, DeviceRegistry, LaunchMode
 from .http_api import PrincessHttpServer
 from .maid import RUNTIME_SCHEMA_VERSION, write_runtime_config
 from .princess import PrincessCoordinator
@@ -717,7 +717,13 @@ class PrincessRuntime:
             raise PrincessRuntimeError(
                 f"Maid doctor failed for {device.id}: {detail or 'unknown error'}"
             )
-        receipt = self._launcher(launch_device)
+        if launch_device.launch_mode is LaunchMode.BELL:
+            receipt = self._launcher(
+                launch_device,
+                bell_token=self.preparation.api_token,
+            )
+        else:
+            receipt = self._launcher(launch_device)
         return DeviceDeployment(
             device=launch_device,
             paths=paths,

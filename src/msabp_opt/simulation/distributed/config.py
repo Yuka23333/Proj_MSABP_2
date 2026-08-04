@@ -49,6 +49,9 @@ _DEVICE_KEYS = {
     "ssh_port",
     "ssh_connect_timeout_seconds",
     "identity_file",
+    "bell_host",
+    "bell_port",
+    "bell_connect_timeout_seconds",
 }
 
 
@@ -60,6 +63,7 @@ class LaunchMode(str, Enum):
     """How Princess wakes a Maid process on a device."""
 
     LOCAL = "local"
+    BELL = "bell"
     SSH_PROCESS = "ssh_process"
     SCHEDULED_TASK = "scheduled_task"
 
@@ -88,6 +92,9 @@ class DeviceConfig:
     ssh_port: int = 22
     ssh_connect_timeout_seconds: float = 10.0
     identity_file: str | None = None
+    bell_host: str | None = None
+    bell_port: int = 8766
+    bell_connect_timeout_seconds: float = 10.0
 
     @property
     def is_remote(self) -> bool:
@@ -259,6 +266,20 @@ def device_from_mapping(
         raw.get("identity_file"),
         f"{label}.identity_file",
     )
+    bell_host = _optional_text(raw.get("bell_host"), f"{label}.bell_host")
+    if bell_host is not None:
+        bell_host = _validate_ssh_target(bell_host, f"{label}.bell_host")
+        if "@" in bell_host:
+            raise DeviceConfigError(f"{label}.bell_host must not include a username")
+    bell_port = _positive_int(
+        raw.get("bell_port", 8766),
+        f"{label}.bell_port",
+        65535,
+    )
+    bell_connect_timeout = _positive_number(
+        raw.get("bell_connect_timeout_seconds", 10.0),
+        f"{label}.bell_connect_timeout_seconds",
+    )
     ssh_port = _positive_int(raw.get("ssh_port", 22), f"{label}.ssh_port", 65535)
     connect_timeout = _positive_number(
         raw.get("ssh_connect_timeout_seconds", 10.0),
@@ -272,6 +293,8 @@ def device_from_mapping(
             raise DeviceConfigError(
                 f"{label}.scheduled_task_name must be null for local mode"
             )
+        if bell_host is not None:
+            raise DeviceConfigError(f"{label}.bell_host must be null for local mode")
     else:
         if ssh_target is None:
             raise DeviceConfigError(
@@ -286,6 +309,23 @@ def device_from_mapping(
     if launch_mode is LaunchMode.SSH_PROCESS and scheduled_task_name is not None:
         raise DeviceConfigError(
             f"{label}.scheduled_task_name must be null for ssh_process mode"
+        )
+    if launch_mode is LaunchMode.BELL and bell_host is None:
+        raise DeviceConfigError(f"{label}.bell_host is required for bell mode")
+    if launch_mode is not LaunchMode.BELL and bell_host is not None:
+        raise DeviceConfigError(
+            f"{label}.bell_host is only valid for bell mode"
+        )
+    if launch_mode is not LaunchMode.BELL and (
+        "bell_port" in raw or "bell_connect_timeout_seconds" in raw
+    ):
+        raise DeviceConfigError(
+            f"{label}.bell_port and bell_connect_timeout_seconds are only valid "
+            "for bell mode"
+        )
+    if launch_mode is LaunchMode.BELL and scheduled_task_name is not None:
+        raise DeviceConfigError(
+            f"{label}.scheduled_task_name must be null for bell mode"
         )
     if enabled and is_placeholder_path(python_path):
         raise DeviceConfigError(
@@ -304,6 +344,9 @@ def device_from_mapping(
         ssh_port=ssh_port,
         ssh_connect_timeout_seconds=connect_timeout,
         identity_file=identity_file,
+        bell_host=bell_host,
+        bell_port=bell_port,
+        bell_connect_timeout_seconds=bell_connect_timeout,
     )
 
 

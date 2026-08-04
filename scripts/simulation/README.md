@@ -8,29 +8,32 @@
 ```text
 Princess（本机）
   ├─ SCP：短连接分发 worklist、CST 项目副本和 Maid runtime JSON
-  └─ SSH：短连接尝试 PowerShell Start-Process，取得 PID 后断开
+  ├─ SSH：只做部署/doctor，不承载常驻进程
+  └─ JSON/TCP + HMAC：敲响 8766 端口的 Maid Bell
                                       │
+                                      ▼
+                    Maid Bell（远端开机自启 Windows 服务）
+                                      │ 本地创建进程
                                       ▼
                             Maid（远端本地进程）
                               ├─ 本机 cst.interface → 本机无头 CST
-                              └─ 主动 HTTP hello 确认存活，再领任务、心跳、上传结果
+                              └─ 主动 HTTP hello、领任务、心跳、上传结果
 ```
 
-SSH 只负责部署和一次“叫醒”尝试。默认的轻量路径是在 SSH 远程 PowerShell 中执行隐藏的
-`Start-Process`，取得远端 PID 后结束 SSH；Maid 若成功脱离会作为远端本地进程继续运行，
-随后由它调用该主机上的 `cst.interface` 启动和控制无头 CST。Princess 必须在启动期限内
-收到 Maid 主动发来的 HTTP hello，才会确认本次叫醒成功，不能仅凭 `Start-Process` 返回
-PID 判断。反过来，如果 `Start-Process` 已经成功、但 SSH 回执超时或丢失，只要 Maid 在
-本轮叫醒的时间截点之后完成 hello，Princess 就以 hello 为事实将它视为存活；没有可靠
-回执时不会强求 PID 匹配。这里的“本机”始终是相对于 Maid 所在主机而言；Princess 不
-通过 SSH 持续控制 CST，也不通过 SSH 直接启动或操纵 CST。
+`convallariag5` 和 `coconutg2` 已实测：Windows OpenSSH 会在 SSH 断开时清理该会话创建
+的完整进程树，所以 `Start-Process` 返回 PID 也不能让 Maid 常驻。默认 `launch_mode`
+因此改为 `bell`：Princess 仍用 SSH/SCP 安全部署文件，但叫醒动作交给已经在目标机本地
+运行的 Maid Bell。`ssh_process` 只保留为调试模式，`scheduled_task` 只保留为兼容
+fallback，不再是这两台设备的常规路径。
 
-这条路径不要求 TeamViewer 在线，也不要求 CST 出现在交互桌面。设备的默认
-`launch_mode` 是 `ssh_process`，但不能无条件假设所有 Windows OpenSSH 配置都会让
-`Start-Process` 的子进程在 SSH 断开后继续存活；最终以 Maid hello 实测为准。如果某台
-主机会在远程会话结束时清理子进程，则把该设备改为 `scheduled_task`，用计划任务实现持久
-脱离 SSH。这个 fallback 解决的是进程存活问题，不是为了提供可见桌面，也不是 CST 无头
-运行的前置条件。
+Bell 的机器配置不保存长期密码。Princess 每个 run 生成的随机 API token 会随
+`maid_runtime.json` 经 SCP 到达远端；TCP wake 请求用同一 token 做 HMAC 签名。Bell 只
+接受指向该仓库 `simulations/runs/**/maid_runtime.json` 的请求，只能启动固定的
+[`maid.py`](maid.py)，并且同一时间只允许一个 Maid。Bell 返回 PID 只是启动回执；Princess
+仍必须在期限内收到 Maid 主动发来的 HTTP hello 才确认其真正存活。
+
+这条路径不要求 TeamViewer 持续在线，也不要求 CST 出现在交互桌面。这里的“本机”始终
+是相对于 Maid 所在主机而言；Princess 不通过 SSH 持续控制 CST。
 
 ## 当前设备与环境
 
@@ -50,8 +53,9 @@ PID 判断。反过来，如果 `Start-Process` 已经成功、但 SSH 回执超
 
 - `bind_host`、`advertise_url` 和 `port`：Princess 监听地址以及 Maid 回连地址；
 - `enabled`：未传 `--device` 时是否默认参与；
-- `launch_mode`：常规远端使用 `ssh_process`；
+- `launch_mode`：常规远端使用 `bell`；
 - `ssh_target`、`repo_root`、`python_path`：SSH 地址和远端本地路径；
+- `bell_host`、`bell_port`：Tailscale/MagicDNS 下的 Bell 地址，默认端口为 `8766`；
 - `runtime_config_path`：注册表层面的默认/doctor 检查路径；`start` 实际会为每次唤醒
   生成独立路径，并在启动该 Maid 时覆盖这个值。
 
@@ -68,6 +72,7 @@ PID 判断。反过来，如果 `Start-Process` 已经成功、但 SSH 回执超
 C:\Users\David\.conda\envs\cstpy\python.exe scripts\simulation\princess.py add-device `
   --id new-host `
   --ssh-target telecom@new-host `
+  --bell-host new-host `
   --repo-root D:\Academic\Proj_MSABP_2 `
   --python-path C:\Users\telecom\miniforge3\envs\maid\python.exe
 ```
@@ -83,6 +88,39 @@ ssh telecom@convallariag5 "git -C D:\Academic\Proj_MSABP_2 pull --ff-only"
 ssh telecom@coconutg2 "git -C D:\Academic\Proj_MSABP_2 pull --ff-only"
 ```
 
+### 0. 每台远端一次性安装 Maid Bell
+
+先在普通终端把精简环境更新到包含 `pywin32`：
+
+```powershell
+cd D:\Academic\Proj_MSABP_2
+C:\Users\telecom\miniforge3\Scripts\conda.exe env update `
+  --name maid `
+  --file maid.yaml
+```
+
+然后通过 TeamViewer 在目标机打开“以管理员身份运行”的 PowerShell，各执行一次与主机名
+匹配的命令：
+
+```powershell
+# convallariag5 上
+powershell -ExecutionPolicy Bypass -File scripts\simulation\install_maid_bell.ps1 `
+  -DeviceId convallariag5
+
+# coconutg2 上
+powershell -ExecutionPolicy Bypass -File scripts\simulation\install_maid_bell.ps1 `
+  -DeviceId coconutg2
+```
+
+安装器会生成 `%ProgramData%\MSABP Maid Bell\bell.json`、注册延迟自动启动服务、创建只
+允许 Tailscale IPv4 (`100.64.0.0/10`) 访问 TCP 8766 的防火墙规则、启动并本机 ping。
+脚本可重复执行，用于更新服务代码或配置。
+
+SCM 默认用 `LocalSystem` 启动服务。先用下面的分布式 dry-run 验证 Bell/Maid 基础设施；
+如果它通过而真实 CST 因用户级 license/profile 权限失败，再在 `services.msc` 中把
+`MSABPMaidBell` 的“登录”账户改为 `\.\telecom` 并重启。账户密码只应交给 Windows
+Service Control Manager，不要写进仓库或命令行。
+
 ### 1. 只读 doctor
 
 ```powershell
@@ -92,7 +130,8 @@ C:\Users\David\.conda\envs\cstpy\python.exe scripts\simulation\princess.py docto
 ```
 
 `doctor` 通过 SSH 只读检查远端仓库、Maid Python、Python 依赖、仓库中的 CST 模板、
-入口脚本和注册表默认位置的 runtime JSON，不会启动 CST。第一次只完成 `git pull`、
+入口脚本、Maid Bell 和注册表默认位置的 runtime JSON，不会启动 CST。第一次只完成
+`git pull`、
 尚未运行 Princess 时，报告中出现 `missing runtime_config` 是预期现象，因此该次命令会
 返回非零退出码；`start` 会先用 SCP 部署本次 launch 专属的 runtime JSON，再对实际启动
 配置执行完整 doctor。其他缺项，尤其是 `python`、`cst.interface`、`repo_root` 或
@@ -109,7 +148,7 @@ C:\Users\David\.conda\envs\cstpy\python.exe scripts\simulation\princess.py start
   --device coconutg2
 ```
 
-`--dry-run` 仍会完整测试 CSV 冻结与过滤、SCP、SSH 唤醒与 hello 确认、Maid 主动回连、
+`--dry-run` 仍会完整测试 CSV 冻结与过滤、SCP、Bell 唤醒与 hello 确认、Maid 主动回连、
 任务租约、几何预检、结果打包上传和 Princess 落盘，但不会连接或启动 CST，也不会产生
 S11/FFS。
 dry-run 会把任务标记为完成；真实仿真必须使用新的 `--run-id`。
@@ -156,7 +195,7 @@ Princess 首先冻结原始 CSV，再在本机生成实际下发的 `worklist.cs
 Maid 运行中发现的永久几何预检错误同样不计入“五连错”。其余 CST/基础设施错误会累积：
 
 1. 同一 Maid 连续 5 次报错时，Princess 保留这 5 次失败记录，Maid 退出；
-2. Princess 自动通过 SSH 将该 Maid 重新叫醒一次；
+2. Princess 自动通过 Maid Bell 将该 Maid 重新叫醒一次；
 3. 若重启后在尚未成功完成任何算例前再次连续 5 次报错，该 Maid 被隔离
    （`quarantined`），不再自动领取任务；
 4. 任何一次成功完成都会清空连续错误以及“未成功前已自动重启”的计数。
@@ -205,6 +244,9 @@ Princess 主机上的持久化状态：
 - `<launch-root>/output/outbox/<attempt-id>.zip`：等待上传/确认的结果包；
 - `logs/maid.<device-id>.<launch-id>.stdout.log` 和 `.stderr.log`：仓库根目录下的远端 Maid
   日志。
+- `simulations/runs/maid-bell.<device-id>.state.json`：Bell 当前监督的 Maid PID 和 runtime；
+- `logs/maid-bell.<device-id>.log`：Windows 服务日志；Bell 的无密钥机器配置位于
+  `%ProgramData%\MSABP Maid Bell\bell.json`，不在 Git 仓库中。
 
 Princess 返回 `completed_ack` 后，Maid 会删除对应的成功 attempt 目录及 outbox ZIP；
 失败、进程中断或清理失败留下的内容会保留，便于诊断。项目副本及 CST 侧车目录不会因此
@@ -216,11 +258,13 @@ Princess 自身的实时日志目前输出到启动它的终端。上述运行�
 
 ## 网络与安全边界
 
-Maid 与 Princess 之间使用带随机 token 的普通 HTTP，而不是 TLS。它只适合运行在双方
-均可信的 Tailscale tailnet 内；不要把端口 `8765` 转发到公网，也不要把
+Maid 与 Princess 之间使用带随机 token 的普通 HTTP；Bell wake 使用带 HMAC 的 JSON/TCP，
+两者都不额外套 TLS。它们只适合运行在双方均可信的 Tailscale tailnet 内；不要把端口
+`8765` 或 `8766` 转发到公网，也不要把
 `bind_host` 改成面向不可信局域网或公网的监听地址。当前配置使用 Princess 的
 Tailscale 地址 `100.99.182.30`；如果该地址变化，需要同时更新 `bind_host` 和
 `advertise_url`，并确认两台 Maid 可以访问它。
 
 `princess_runtime.json` 和分发到 Maid 的 runtime JSON 含本次 API token，应视为运行时
-秘密；SSH 身份验证仍由系统 OpenSSH 密钥配置负责，设备注册表本身不保存 SSH 私钥。
+秘密；Bell 的 HMAC 也使用这个临时 token。SSH 身份验证仍由系统 OpenSSH 密钥配置负责，
+设备注册表本身不保存 SSH 私钥或 Bell 密钥。

@@ -20,5 +20,8 @@ dependencies:
   - shapely=2.1.*
   - matplotlib-base=3.10.*
 
+  # Persistent Windows Maid Bell service host.
+  - pywin32
+
   - pip:
       - "cst-studio-suite-link @ file:///C:/Program%20Files%20(x86)/CST%20Studio%20Suite%202025/Library/Python/repo/simple/cst_studio_suite_link-2025.0.1249836.778-py3-none-any.whl"

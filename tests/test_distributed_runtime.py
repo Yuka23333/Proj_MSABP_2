@@ -70,11 +70,15 @@ def _registry(device: DeviceConfig, port: int = 8765) -> DeviceRegistry:
     )
 
 
-def _device(*, enabled: bool = False) -> DeviceConfig:
+def _device(
+    *,
+    enabled: bool = False,
+    launch_mode: LaunchMode = LaunchMode.SSH_PROCESS,
+) -> DeviceConfig:
     return DeviceConfig(
         id="maid-a",
         enabled=enabled,
-        launch_mode=LaunchMode.SSH_PROCESS,
+        launch_mode=launch_mode,
         ssh_target="telecom@maid-a",
         repo_root=r"D:\Academic\Proj_MSABP_2",
         python_path=r"C:\Users\telecom\miniforge3\envs\maid\python.exe",
@@ -82,6 +86,7 @@ def _device(*, enabled: bool = False) -> DeviceConfig:
             r"D:\Academic\Proj_MSABP_2\simulations\runs"
             r"\active_maid_runtime.json"
         ),
+        bell_host="maid-a" if launch_mode is LaunchMode.BELL else None,
     )
 
 
@@ -205,6 +210,74 @@ def test_deployment_commits_runtime_last_and_refreshes_project_on_resume(
             "maid_runtime.json",
         ]
         assert r"launches\resume-test\model\msa-bp.cst" in paths.project_path
+    finally:
+        runtime.close()
+
+
+def test_bell_deployment_passes_ephemeral_run_token_to_launcher(
+    tmp_path: Path,
+) -> None:
+    source = _write_small_csv(tmp_path / "samples.csv")
+    project = tmp_path / "template.cst"
+    project.write_bytes(b"standalone-cst")
+    device = _device(enabled=True, launch_mode=LaunchMode.BELL)
+    registry = _registry(device)
+    preparation = prepare_run(
+        source_csv=source,
+        run_id="bell-run",
+        registry=registry,
+        devices=(device,),
+        repository_root=tmp_path,
+    )
+    checks = tuple(
+        ModuleCheck(name=name, available=True)
+        for name in ("cst.interface", "shapely", "scipy", "pandas", "numpy")
+    )
+    launch_calls: list[tuple[DeviceConfig, dict[str, str]]] = []
+
+    def fake_launch(
+        launch_device: DeviceConfig,
+        **kwargs: str,
+    ) -> LaunchReceipt:
+        launch_calls.append((launch_device, dict(kwargs)))
+        return LaunchReceipt(
+            device_id=launch_device.id,
+            launch_mode=LaunchMode.BELL,
+            pid=4321,
+            command=("maid-bell",),
+            stdout_path=r"D:\Repo\logs\maid.stdout.log",
+            stderr_path=r"D:\Repo\logs\maid.stderr.log",
+        )
+
+    runtime = PrincessRuntime(
+        preparation=preparation,
+        registry=registry,
+        devices=(device,),
+        project_template=project,
+        push_file=lambda *_args, **_kwargs: None,
+        doctor=lambda _device: DoctorReport(
+            device_id="maid-a",
+            python_path=device.python_path,
+            python_exists=True,
+            repo_exists=True,
+            project_exists=True,
+            runtime_config_exists=True,
+            maid_entrypoint_exists=True,
+            scheduled_task_exists=None,
+            python_version="3.11",
+            modules=checks,
+            bell_reachable=True,
+        ),
+        launcher=fake_launch,
+    )
+    runtime._state = PrincessState(preparation.paths.database)
+    try:
+        deployment = runtime.deploy_and_launch(device)
+        assert deployment.launch.pid == 4321
+        assert len(launch_calls) == 1
+        launch_device, kwargs = launch_calls[0]
+        assert launch_device.runtime_config_path is not None
+        assert kwargs == {"bell_token": preparation.api_token}
     finally:
         runtime.close()
 

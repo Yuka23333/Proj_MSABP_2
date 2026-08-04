@@ -7,7 +7,7 @@
     {
       "id": "convallariag5",
       "enabled": false,
-      "launch_mode": "ssh_process",
+      "launch_mode": "bell",
       "ssh_target": "telecom@convallariag5",
       "repo_root": "D:\\Academic\\Proj_MSABP_2",
       "python_path": "C:\\Users\\telecom\\miniforge3\\envs\\maid\\python.exe",
@@ -15,12 +15,15 @@
       "runtime_config_path": "D:\\Academic\\Proj_MSABP_2\\simulations\\runs\\active_maid_runtime.json",
       "ssh_port": 22,
       "ssh_connect_timeout_seconds": 10.0,
-      "identity_file": null
+      "identity_file": null,
+      "bell_host": "convallariag5",
+      "bell_port": 8766,
+      "bell_connect_timeout_seconds": 10.0
     },
     {
       "id": "coconutg2",
       "enabled": false,
-      "launch_mode": "ssh_process",
+      "launch_mode": "bell",
       "ssh_target": "telecom@coconutg2",
       "repo_root": "D:\\Academic\\Proj_MSABP_2",
       "python_path": "C:\\Users\\telecom\\miniforge3\\envs\\maid\\python.exe",
@@ -28,7 +31,10 @@
       "runtime_config_path": "D:\\Academic\\Proj_MSABP_2\\simulations\\runs\\active_maid_runtime.json",
       "ssh_port": 22,
       "ssh_connect_timeout_seconds": 10.0,
-      "identity_file": null
+      "identity_file": null,
+      "bell_host": "coconutg2",
+      "bell_port": 8766,
+      "bell_connect_timeout_seconds": 10.0
     },
     {
       "id": "local",

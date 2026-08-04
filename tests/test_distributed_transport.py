@@ -53,6 +53,7 @@ def _remote_device(
             "scheduled_task_name": (
                 "Proj_MSABP_Maid" if launch_mode == "scheduled_task" else None
             ),
+            "bell_host": "remote-one" if launch_mode == "bell" else None,
             "runtime_config_path": (
                 r"D:\Academic\Proj_MSABP_2\simulations\runs"
                 r"\active_maid_runtime.json"
@@ -109,8 +110,10 @@ def test_checked_in_registry_has_two_remote_maids_and_optional_local() -> None:
     convallaria = registry.get_device("convallariag5")
     coconut = registry.get_device("coconutg2")
     local = registry.get_device("local")
-    assert convallaria.launch_mode is LaunchMode.SSH_PROCESS
-    assert coconut.launch_mode is LaunchMode.SSH_PROCESS
+    assert convallaria.launch_mode is LaunchMode.BELL
+    assert coconut.launch_mode is LaunchMode.BELL
+    assert convallaria.bell_host == "convallariag5"
+    assert coconut.bell_host == "coconutg2"
     assert convallaria.ssh_target == "telecom@convallariag5"
     assert coconut.ssh_target == "telecom@coconutg2"
     assert convallaria.python_path.endswith(r"miniforge3\envs\maid\python.exe")
@@ -121,6 +124,20 @@ def test_checked_in_registry_has_two_remote_maids_and_optional_local() -> None:
 def test_enabled_device_cannot_keep_python_placeholder() -> None:
     with pytest.raises(DeviceConfigError, match="placeholder"):
         _remote_device(python_path=PYTHON_PATH_PLACEHOLDER)
+
+
+def test_bell_settings_are_rejected_for_non_bell_device() -> None:
+    raw = {
+        "id": "remote-one",
+        "enabled": True,
+        "launch_mode": "ssh_process",
+        "ssh_target": "telecom@remote-one",
+        "repo_root": r"D:\Repo",
+        "python_path": r"C:\Python\python.exe",
+        "bell_port": 8766,
+    }
+    with pytest.raises(DeviceConfigError, match="only valid for bell mode"):
+        device_from_mapping(raw)
 
 
 def test_registry_rejects_duplicate_ids_and_mismatched_url_port() -> None:
@@ -361,6 +378,42 @@ def test_doctor_placeholder_is_explicit_and_never_runs_command() -> None:
     assert runner.calls == []
 
 
+def test_doctor_probes_bell_and_requires_matching_device() -> None:
+    payload = {
+        "python_exists": True,
+        "repo_exists": True,
+        "project_exists": True,
+        "runtime_config_exists": True,
+        "maid_entrypoint_exists": True,
+        "scheduled_task_exists": None,
+        "python": {
+            "python_version": "3.11.15",
+            "modules": {
+                name: {"available": True, "version": "test"}
+                for name in ("cst.interface", "shapely", "scipy", "pandas", "numpy")
+            },
+        },
+        "errors": [],
+    }
+
+    class WrongBellClient:
+        def __init__(self, _host: str, _port: int, *, timeout: float) -> None:
+            _ = timeout
+
+        def ping(self) -> dict[str, object]:
+            return {"device_id": "someone-else"}
+
+    report = doctor_device(
+        _remote_device(launch_mode="bell"),
+        runner=RecordingRunner([json.dumps(payload)]),
+        bell_client_factory=WrongBellClient,
+    )
+
+    assert report.bell_reachable is False
+    assert "maid_bell" in report.missing_requirements
+    assert "device_id does not match" in report.errors[-1]
+
+
 def test_ssh_process_launch_is_detached_hidden_and_returns_pid() -> None:
     runner = RecordingRunner(
         [
@@ -403,6 +456,49 @@ def test_ssh_process_launch_is_detached_hidden_and_returns_pid() -> None:
     assert "active_maid_runtime.json" in script
     assert "--runtime-config" in script
     assert "scripts\\simulation\\maid.py" in script
+
+
+def test_bell_launch_uses_run_token_and_never_ssh() -> None:
+    calls: list[tuple[str, int, float]] = []
+    wakes: list[dict[str, str]] = []
+
+    class FakeBellClient:
+        def __init__(self, host: str, port: int, *, timeout: float) -> None:
+            calls.append((host, port, timeout))
+
+        def wake(self, **kwargs: str) -> dict[str, object]:
+            wakes.append(dict(kwargs))
+            return {
+                "pid": 7654,
+                "stdout_path": r"D:\Repo\logs\maid.stdout.log",
+                "stderr_path": r"D:\Repo\logs\maid.stderr.log",
+            }
+
+    runner = RecordingRunner()
+    device = _remote_device(launch_mode="bell")
+    receipt = launch_maid(
+        device,
+        runner=runner,
+        bell_token="t" * 32,
+        bell_client_factory=FakeBellClient,
+    )
+
+    assert receipt.launch_mode is LaunchMode.BELL
+    assert receipt.pid == 7654
+    assert calls == [("remote-one", 8766, 10.0)]
+    assert wakes == [
+        {
+            "device_id": "remote-one",
+            "runtime_config_path": device.resolved_runtime_config_path,
+            "api_token": "t" * 32,
+        }
+    ]
+    assert runner.calls == []
+
+
+def test_bell_launch_requires_the_current_run_token() -> None:
+    with pytest.raises(TransportError, match="current run API token"):
+        launch_maid(_remote_device(launch_mode="bell"))
 
 
 def test_scheduled_task_launch_remains_a_fallback() -> None:

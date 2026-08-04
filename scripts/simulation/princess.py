@@ -103,8 +103,8 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--id", required=True)
     add.add_argument(
         "--launch-mode",
-        choices=("ssh_process", "scheduled_task", "local"),
-        default="ssh_process",
+        choices=("bell", "ssh_process", "scheduled_task", "local"),
+        default="bell",
     )
     add.add_argument("--ssh-target")
     add.add_argument("--repo-root", required=True)
@@ -114,6 +114,9 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--ssh-port", type=int, default=22)
     add.add_argument("--ssh-connect-timeout-seconds", type=float, default=10.0)
     add.add_argument("--identity-file")
+    add.add_argument("--bell-host")
+    add.add_argument("--bell-port", type=int, default=8766)
+    add.add_argument("--bell-connect-timeout-seconds", type=float, default=10.0)
     add.add_argument("--enabled", action="store_true")
     return parser
 
@@ -211,6 +214,9 @@ def _run_add_device(args: argparse.Namespace) -> int:
         "ssh_port": args.ssh_port,
         "ssh_connect_timeout_seconds": args.ssh_connect_timeout_seconds,
         "identity_file": args.identity_file,
+        "bell_host": args.bell_host,
+        "bell_port": args.bell_port,
+        "bell_connect_timeout_seconds": args.bell_connect_timeout_seconds,
     }
     registry = copy_registry_with_device(args.devices_config, mapping)
     print(f"added {args.id}; registry now has {len(registry.devices)} devices")
