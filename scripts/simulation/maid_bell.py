@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import traceback
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 
@@ -51,13 +53,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init.add_argument("--output", type=Path, default=default_bell_config_path())
 
-    for name in ("serve", "doctor"):
-        command = subparsers.add_parser(name)
-        command.add_argument(
-            "--config",
-            type=Path,
-            default=default_bell_config_path(),
-        )
+    serve = subparsers.add_parser("serve", help="run the Bell in foreground")
+    serve.add_argument(
+        "--config",
+        type=Path,
+        default=default_bell_config_path(),
+    )
+    serve.add_argument("--log", type=Path)
+
+    doctor = subparsers.add_parser("doctor")
+    doctor.add_argument(
+        "--config",
+        type=Path,
+        default=default_bell_config_path(),
+    )
 
     ping = subparsers.add_parser("ping", help="query a running Bell")
     ping.add_argument("--host", required=True)
@@ -106,6 +115,35 @@ def _doctor(config_path: Path) -> int:
     return 0 if report["ok"] else 2
 
 
+def _serve(config_path: Path) -> int:
+    config = MaidBellConfig.load(config_path)
+    server = MaidBellServer(config)
+    print(
+        f"[Maid Bell:{config.device_id}] listening on "
+        f"{server.server_address[0]}:{server.server_address[1]}",
+        flush=True,
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        server.shutdown()
+    return 0
+
+
+def _serve_with_log(config_path: Path, log_path: Path) -> int:
+    destination = log_path.resolve()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("a", encoding="utf-8", buffering=1) as log:
+        with redirect_stdout(log), redirect_stderr(log):
+            try:
+                return _serve(config_path)
+            except Exception:
+                traceback.print_exc()
+                raise
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -122,20 +160,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(response, ensure_ascii=False, indent=2))
             return 0
         if args.command == "serve":
-            config = MaidBellConfig.load(args.config)
-            server = MaidBellServer(config)
-            print(
-                f"[Maid Bell:{config.device_id}] listening on "
-                f"{server.server_address[0]}:{server.server_address[1]}",
-                flush=True,
-            )
-            try:
-                server.serve_forever()
-            except KeyboardInterrupt:
-                return 130
-            finally:
-                server.shutdown()
-            return 0
+            if args.log is not None:
+                return _serve_with_log(args.config, args.log)
+            return _serve(args.config)
         raise AssertionError(f"unknown command: {args.command}")
     except Exception as exc:
         print(f"Maid Bell error: {type(exc).__name__}: {exc}", file=sys.stderr)

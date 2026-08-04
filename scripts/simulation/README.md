@@ -12,7 +12,7 @@ Princess（本机）
   └─ JSON/TCP + HMAC：敲响 8766 端口的 Maid Bell
                                       │
                                       ▼
-                    Maid Bell（远端开机自启 Windows 服务）
+               Maid Bell（Windows 服务或开机 S4U 计划任务）
                                       │ 本地创建进程
                                       ▼
                             Maid（远端本地进程）
@@ -23,8 +23,9 @@ Princess（本机）
 `convallariag5` 和 `coconutg2` 已实测：Windows OpenSSH 会在 SSH 断开时清理该会话创建
 的完整进程树，所以 `Start-Process` 返回 PID 也不能让 Maid 常驻。默认 `launch_mode`
 因此改为 `bell`：Princess 仍用 SSH/SCP 安全部署文件，但叫醒动作交给已经在目标机本地
-运行的 Maid Bell。`ssh_process` 只保留为调试模式，`scheduled_task` 只保留为兼容
-fallback，不再是这两台设备的常规路径。
+运行的 Maid Bell。这里的计划任务仅负责常驻托管 Bell，与设备注册表中直接叫醒 Maid 的
+旧 `launch_mode=scheduled_task` 不是一回事；Princess 侧仍统一使用 `launch_mode=bell`。
+`ssh_process` 只保留为调试模式。
 
 Bell 的机器配置不保存长期密码。Princess 每个 run 生成的随机 API token 会随
 `maid_runtime.json` 经 SCP 到达远端；TCP wake 请求用同一 token 做 HMAC 签名。Bell 只
@@ -112,11 +113,26 @@ powershell -ExecutionPolicy Bypass -File scripts\simulation\install_maid_bell.ps
   -DeviceId coconutg2
 ```
 
-安装器会生成 `%ProgramData%\MSABP Maid Bell\bell.json`、注册延迟自动启动服务、创建只
-允许 Tailscale IPv4 (`100.64.0.0/10`) 访问 TCP 8766 的防火墙规则、启动并本机 ping。
-脚本可重复执行，用于更新服务代码或配置。
+安装器会生成 `%ProgramData%\MSABP Maid Bell\bell.json`、创建只允许 Tailscale IPv4
+(`100.64.0.0/10`) 访问 TCP 8766 的防火墙规则、启动并本机 ping。默认
+`-HostMode Auto`：优先注册延迟自动启动的 Windows 服务；如果 Smart App Control/WDAC
+拒绝未签名的 pywin32 `pythonservice.exe`，安装器会删除失败的服务并自动降级为开机启动
+的 S4U 计划任务。两种托管方式运行完全相同的 Bell TCP 协议，脚本也都可以重复执行。
 
-SCM 默认用 `LocalSystem` 启动服务。先用下面的分布式 dry-run 验证 Bell/Maid 基础设施；
+需要跳过服务尝试时可显式指定：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\simulation\install_maid_bell.ps1 `
+  -DeviceId coconutg2 `
+  -HostMode ScheduledTask
+```
+
+S4U fallback 默认使用本机 `telecom` 账户，不保存密码，也不需要用户保持登录；它没有访问
+需要 Windows 用户凭据的 SMB 共享的能力，但 Maid 与 Princess 的 Tailscale TCP 通信不
+依赖这种凭据。
+
+服务模式下 SCM 默认用 `LocalSystem` 启动。先用下面的分布式 dry-run 验证 Bell/Maid
+基础设施；
 如果它通过而真实 CST 因用户级 license/profile 权限失败，再在 `services.msc` 中把
 `MSABPMaidBell` 的“登录”账户改为 `\.\telecom` 并重启。账户密码只应交给 Windows
 Service Control Manager，不要写进仓库或命令行。
@@ -247,6 +263,7 @@ Princess 主机上的持久化状态：
 - `simulations/runs/maid-bell.<device-id>.state.json`：Bell 当前监督的 Maid PID 和 runtime；
 - `logs/maid-bell.<device-id>.log`：Windows 服务日志；Bell 的无密钥机器配置位于
   `%ProgramData%\MSABP Maid Bell\bell.json`，不在 Git 仓库中。
+- `logs/maid-bell.<device-id>.task.log`：S4U 计划任务托管 Bell 时的启动/异常日志。
 
 Princess 返回 `completed_ack` 后，Maid 会删除对应的成功 attempt 目录及 outbox ZIP；
 失败、进程中断或清理失败留下的内容会保留，便于诊断。项目副本及 CST 侧车目录不会因此
