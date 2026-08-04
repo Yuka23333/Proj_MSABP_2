@@ -253,6 +253,15 @@ def run_csv_row(
             raise CaseRunError(resolved_case_id, "open_project", str(exc)) from exc
 
     try:
+        _notify(stage_callback, "clearing_results")
+        cst_run_and_export_s11.clear_results_on_project(
+            project,
+            timeout=command_timeout,
+        )
+    except Exception as exc:
+        raise CaseRunError(resolved_case_id, "clear_results", str(exc)) from exc
+
+    try:
         _notify(stage_callback, "building_geometry")
         build_report = cst_build_msabp_geometry.build_msabp_in_cst(
             project_path=project_path,
@@ -266,6 +275,19 @@ def run_csv_row(
     except Exception as exc:
         raise CaseRunError(resolved_case_id, "build", str(exc)) from exc
 
+    try:
+        _notify(stage_callback, "restoring_simulation_setup")
+        cst_run_and_export_s11.restore_recorded_simulation_setup(
+            project,
+            timeout=command_timeout,
+        )
+    except Exception as exc:
+        raise CaseRunError(
+            resolved_case_id,
+            "restore_simulation_setup",
+            str(exc),
+        ) from exc
+
     farfield_source = project_farfield_source_path(project_path)
     farfield_before = _file_generation_signature(farfield_source)
     try:
@@ -275,6 +297,7 @@ def run_csv_row(
             overwrite=overwrite,
             command_timeout=command_timeout,
             save_project=save_project_after_case,
+            clear_results=False,
             stage_callback=stage_callback,
         )
     except Exception as exc:

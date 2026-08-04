@@ -1,8 +1,9 @@
-"""Rebuild the managed MSA-BP geometry, solve, and export one S11 curve.
+"""Rebuild the managed MSA-BP geometry and recorded CST solve setup.
 
-The geometry builder deletes only its own ``component1:msabp_*`` objects and
-matching source curves.  Existing connectors, ports, boundaries, solver setup,
-and field monitors are treated as reusable CST-template objects.
+The standalone ``.cst`` keeps the connector and general model data, but a bare
+copy does not reliably restore picks or field monitors.  The pick-dependent
+port, monitors, mesh, and solver settings are therefore recreated from the
+recorded CST 2025 history before every solve.
 """
 
 from __future__ import annotations
@@ -36,6 +37,24 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_PATH = REPOSITORY_ROOT / "results" / "raw" / "baseline" / "S11.csv"
 S11_TREE_PATH = r"1D Results\S-Parameters\S1,1"
 DEFAULT_COMMAND_TIMEOUT = 60.0
+RECORDED_PORT_NUMBER = 1
+RECORDED_FARFIELD_MIN_GHZ = "2"
+RECORDED_FARFIELD_MAX_GHZ = "7"
+RECORDED_FARFIELD_STEP_GHZ = "0.1"
+
+
+def _format_frequency_tenths(value: int) -> str:
+    whole, tenths = divmod(value, 10)
+    return str(whole) if tenths == 0 else f"{whole}.{tenths}"
+
+
+RECORDED_FARFIELD_MONITOR_NAMES = tuple(
+    f"farfield (f={_format_frequency_tenths(value)})"
+    for value in range(20, 71)
+)
+RECORDED_FARFIELD_MONITOR_TREE_ITEMS = tuple(
+    rf"Field Monitors\{name}" for name in RECORDED_FARFIELD_MONITOR_NAMES
+)
 
 
 @dataclass(frozen=True)
@@ -63,6 +82,239 @@ def _vba_string(value: object) -> str:
 
 def build_clear_results_vba() -> str:
     return "Sub Main()\n    DeleteResults\nEnd Sub"
+
+
+def build_delete_recorded_setup_vba() -> str:
+    """Delete the objects recreated from ``History_list_record.txt``."""
+
+    monitor_deletes = "\n".join(
+        f'    Monitor.Delete "{name}"'
+        for name in RECORDED_FARFIELD_MONITOR_NAMES
+    )
+    return f'''\
+Sub Main()
+    On Error Resume Next
+    Port.Delete {RECORDED_PORT_NUMBER}
+{monitor_deletes}
+    On Error GoTo 0
+    Pick.ClearAllPicks
+End Sub
+'''
+
+
+def build_recorded_port_vba() -> str:
+    """Recreate the connector-edge pick and Port 1 exactly as recorded."""
+
+    return '''\
+Sub Main()
+    Pick.ClearAllPicks
+    Pick.PickEdgeFromId "Connector:ConFace", "30", "22"
+
+    With Port
+        .Reset
+        .PortNumber "1"
+        .Label ""
+        .Folder ""
+        .NumberOfModes "1"
+        .AdjustPolarization "False"
+        .PolarizationAngle "0.0"
+        .ReferencePlaneDistance "0"
+        .TextSize "50"
+        .TextMaxLimit "0"
+        .Coordinates "Picks"
+        .Orientation "positive"
+        .PortOnBound "False"
+        .ClipPickedPortToBound "False"
+        .Xrange "-1.76825", "1.76825"
+        .Yrange "-8.89", "-8.89"
+        .Zrange "-1.38725", "2.14925"
+        .XrangeAdd "0.0", "0.0"
+        .YrangeAdd "0.0", "0.0"
+        .ZrangeAdd "0.0", "0.0"
+        .SingleEnded "False"
+        .WaveguideMonitor "False"
+        .Create
+    End With
+End Sub
+'''
+
+
+def build_recorded_frequency_range_vba() -> str:
+    return '''\
+Sub Main()
+    Solver.FrequencyRange "2", "7"
+End Sub
+'''
+
+
+def build_recorded_mesh_vba() -> str:
+    """Return the recorded CST 2025 Hexahedral FIT mesh configuration."""
+
+    return '''\
+Sub Main()
+    With Mesh
+        .MeshType "PBA"
+        .SetCreator "High Frequency"
+    End With
+    With MeshSettings
+        .SetMeshType "Hex"
+        .Set "Version", 1%
+        .Set "StepsPerWaveNear", "20"
+        .Set "StepsPerWaveFar", "15"
+        .Set "WavelengthRefinementSameAsNear", "0"
+        .Set "StepsPerBoxNear", "20"
+        .Set "StepsPerBoxFar", "10"
+        .Set "MaxStepNear", "0"
+        .Set "MaxStepFar", "0"
+        .Set "ModelBoxDescrNear", "maxedge"
+        .Set "ModelBoxDescrFar", "maxedge"
+        .Set "UseMaxStepAbsolute", "0"
+        .Set "GeometryRefinementSameAsNear", "0"
+        .Set "UseRatioLimitGeometry", "1"
+        .Set "RatioLimitGeometry", "20"
+        .Set "MinStepGeometryX", "0"
+        .Set "MinStepGeometryY", "0"
+        .Set "MinStepGeometryZ", "0"
+        .Set "UseSameMinStepGeometryXYZ", "1"
+    End With
+    With MeshSettings
+        .Set "PlaneMergeVersion", "2"
+    End With
+    With MeshSettings
+        .SetMeshType "Hex"
+        .Set "FaceRefinementType", "NONE"
+        .Set "FaceRefinementRatio", "2"
+        .Set "FaceRefinementStep", "0"
+        .Set "FaceRefinementNSteps", "2"
+        .Set "EllipseRefinementType", "NONE"
+        .Set "EllipseRefinementRatio", "2"
+        .Set "EllipseRefinementStep", "0"
+        .Set "EllipseRefinementNSteps", "2"
+        .Set "FaceRefinementBufferLines", "3"
+        .Set "EdgeRefinementType", "RATIO"
+        .Set "EdgeRefinementRatio", "6"
+        .Set "EdgeRefinementStep", "0"
+        .Set "EdgeRefinementBufferLines", "3"
+        .Set "RefineEdgeMaterialGlobal", "0"
+        .Set "RefineAxialEdgeGlobal", "0"
+        .Set "BufferLinesNear", "3"
+        .Set "UseDielectrics", "1"
+        .Set "EquilibrateOn", "1"
+        .Set "Equilibrate", "1.5"
+        .Set "IgnoreThinPanelMaterial", "0"
+    End With
+    With MeshSettings
+        .SetMeshType "Hex"
+        .Set "SnapToAxialEdges", "0"
+        .Set "SnapToPlanes", "1"
+        .Set "SnapToSpheres", "1"
+        .Set "SnapToEllipses", "0"
+        .Set "SnapToCylinders", "1"
+        .Set "SnapToCylinderCenters", "1"
+        .Set "SnapToEllipseCenters", "1"
+        .Set "SnapToTori", "1"
+        .Set "SnapXYZ", "1", "1", "1"
+    End With
+    With Mesh
+        .ConnectivityCheck "True"
+        .UsePecEdgeModel "True"
+        .PointAccEnhancement "0"
+        .TSTVersion "0"
+        .PBAVersion "2024121625"
+        .SetCADProcessingMethod "MultiThread22", "-1"
+        .SetGPUForMatrixCalculationDisabled "False"
+    End With
+End Sub
+'''
+
+
+def build_recorded_solver_acceleration_vba() -> str:
+    return '''\
+Sub Main()
+    With Solver
+        .UseParallelization "True"
+        .MaximumNumberOfThreads "1024"
+        .MaximumNumberOfCPUDevices "2"
+        .RemoteCalculation "False"
+        .UseDistributedComputing "False"
+        .MaxNumberOfDistributedComputingPorts "64"
+        .DistributeMatrixCalculation "True"
+        .MPIParallelization "False"
+        .AutomaticMPI "False"
+        .ConsiderOnly0D1DResultsForMPI "False"
+        .HardwareAcceleration "True"
+        .MaximumNumberOfGPUs "1"
+    End With
+    UseDistributedComputingForParameters "False"
+    MaxNumberOfDistributedComputingParameters "2"
+    UseDistributedComputingMemorySetting "False"
+    MinDistributedComputingMemoryLimit "0"
+    UseDistributedComputingSharedDirectory "False"
+    OnlyConsider0D1DResultsForDC "False"
+End Sub
+'''
+
+
+def build_recorded_solver_parameters_vba() -> str:
+    return '''\
+Sub Main()
+    Mesh.SetCreator "High Frequency"
+
+    With Solver
+        .Method "Hexahedral"
+        .CalculationType "TD-S"
+        .StimulationPort "All"
+        .StimulationMode "All"
+        .SteadyStateLimit "-35"
+        .MeshAdaption "False"
+        .AutoNormImpedance "False"
+        .NormingImpedance "50"
+        .CalculateModesOnly "False"
+        .SParaSymmetry "False"
+        .StoreTDResultsInCache "False"
+        .RunDiscretizerOnly "False"
+        .FullDeembedding "False"
+        .SuperimposePLWExcitation "False"
+        .UseSensitivityAnalysis "False"
+    End With
+End Sub
+'''
+
+
+def build_recorded_farfield_monitors_vba() -> str:
+    return '''\
+Sub Main()
+    With Monitor
+        .Reset
+        .Domain "Frequency"
+        .FieldType "Farfield"
+        .ExportFarfieldSource "True"
+        .UseSubvolume "False"
+        .Coordinates "Structure"
+        .SetSubvolume "-4.76", "4.76", "-8.89", "4.5", "-3.96", "3.96"
+        .SetSubvolumeOffset "10", "10", "10", "10", "10", "10"
+        .SetSubvolumeInflateWithOffset "False"
+        .SetSubvolumeOffsetType "FractionOfWavelength"
+        .EnableNearfieldCalculation "True"
+        .CreateUsingLinearStep "2", "7", "0.1"
+    End With
+End Sub
+'''
+
+
+def clear_results_on_project(
+    project: Any,
+    *,
+    timeout: float | None = DEFAULT_COMMAND_TIMEOUT,
+) -> None:
+    """Clear stale solver results before changing geometry or setup."""
+
+    execute_project_vba(
+        project,
+        "clear previous simulation results",
+        build_clear_results_vba(),
+        timeout=timeout,
+    )
 
 
 def build_export_s11_vba(output_path: Path) -> str:
@@ -131,7 +383,7 @@ def plot_s11_ascii(input_path: Path, output_path: Path) -> S11CurveSummary:
 
 
 def inspect_project(project: Any, timeout: float | None) -> ProjectPrerequisites:
-    """Read and validate the reusable port, monitor, and solver setup."""
+    """Read and validate the current port, monitor, and solver setup."""
 
     model3d = project.model3d
     if model3d is None:
@@ -164,6 +416,72 @@ def inspect_project(project: Any, timeout: float | None) -> ProjectPrerequisites
         ports=ports,
         farfield_monitors=farfield_monitors,
     )
+
+
+def inspect_recorded_simulation_setup(
+    project: Any,
+    timeout: float | None = DEFAULT_COMMAND_TIMEOUT,
+) -> ProjectPrerequisites:
+    """Require Port 1 and every monitor from the recorded 2--7 GHz sweep."""
+
+    prerequisites = inspect_project(project, timeout)
+    expected_port = rf"Ports\{RECORDED_PORT_NUMBER}"
+    if expected_port not in prerequisites.ports:
+        raise RuntimeError(f"recorded excitation port is missing: {expected_port}")
+
+    actual_monitors = set(prerequisites.farfield_monitors)
+    missing_monitors = [
+        item
+        for item in RECORDED_FARFIELD_MONITOR_TREE_ITEMS
+        if item not in actual_monitors
+    ]
+    if missing_monitors:
+        preview = ", ".join(missing_monitors[:3])
+        if len(missing_monitors) > 3:
+            preview += f", ... ({len(missing_monitors)} missing)"
+        raise RuntimeError(f"recorded farfield monitor sweep is incomplete: {preview}")
+    return prerequisites
+
+
+def restore_recorded_simulation_setup(
+    project: Any,
+    *,
+    timeout: float | None = DEFAULT_COMMAND_TIMEOUT,
+) -> ProjectPrerequisites:
+    """Recreate the solver setup recorded from the repaired CST project."""
+
+    commands = (
+        (
+            "delete recorded port and farfield monitors",
+            build_delete_recorded_setup_vba(),
+        ),
+        ("recreate connector pick and Port 1", build_recorded_port_vba()),
+        ("restore solver frequency range", build_recorded_frequency_range_vba()),
+        ("restore Hexahedral FIT mesh", build_recorded_mesh_vba()),
+        (
+            "restore time-domain solver acceleration",
+            build_recorded_solver_acceleration_vba(),
+        ),
+        (
+            "restore time-domain solver parameters",
+            build_recorded_solver_parameters_vba(),
+        ),
+        (
+            "recreate 2 to 7 GHz farfield monitors",
+            build_recorded_farfield_monitors_vba(),
+        ),
+    )
+    for label, vba in commands:
+        execute_project_vba(project, label, vba, timeout=timeout)
+
+    prerequisites = inspect_recorded_simulation_setup(project, timeout)
+    print(
+        "[CST] recorded simulation setup restored: "
+        f"ports={len(prerequisites.ports)}, "
+        f"farfield_monitors={len(prerequisites.farfield_monitors)}",
+        flush=True,
+    )
+    return prerequisites
 
 
 def export_s11_from_project(
@@ -212,9 +530,10 @@ def solve_and_export_s11_on_project(
     overwrite: bool = False,
     command_timeout: float | None = DEFAULT_COMMAND_TIMEOUT,
     save_project: bool = False,
+    clear_results: bool = True,
     stage_callback: Callable[[str], None] | None = None,
 ) -> Path:
-    """Clear, solve synchronously, and export S11 on an existing CST project."""
+    """Optionally clear, solve synchronously, and export S11."""
 
     output_path = output_path.expanduser().resolve()
     if output_path.exists() and not overwrite:
@@ -222,14 +541,10 @@ def solve_and_export_s11_on_project(
             f"S11 output already exists: {output_path}; enable overwrite to replace it"
         )
 
-    if stage_callback is not None:
-        stage_callback("clearing_results")
-    execute_project_vba(
-        project,
-        "clear previous simulation results",
-        build_clear_results_vba(),
-        timeout=command_timeout,
-    )
+    if clear_results:
+        if stage_callback is not None:
+            stage_callback("clearing_results")
+        clear_results_on_project(project, timeout=command_timeout)
     if stage_callback is not None:
         stage_callback("solving")
     print("[CST] solver started", flush=True)
@@ -268,13 +583,13 @@ def run_and_export_s11(
         raise ValueError("poll interval must be positive")
 
     project = open_cst_project(str(project_path))
-    prerequisites = inspect_project(project, command_timeout)
     print(f"CST project: {project_path}")
-    print(f"active solver: {prerequisites.solver_name}")
-    print(f"solver running: {prerequisites.solver_running}")
-    print(f"ports: {prerequisites.ports}")
-    print(f"farfield monitors: {len(prerequisites.farfield_monitors)}")
     if check_only:
+        prerequisites = inspect_recorded_simulation_setup(project, command_timeout)
+        print(f"active solver: {prerequisites.solver_name}")
+        print(f"solver running: {prerequisites.solver_running}")
+        print(f"ports: {prerequisites.ports}")
+        print(f"farfield monitors: {len(prerequisites.farfield_monitors)}")
         print("check-only: no geometry, results, solver, or files were changed")
         return None
 
@@ -283,21 +598,11 @@ def run_and_export_s11(
             f"S11 output already exists: {output_path}; use --overwrite to replace it"
         )
 
-    if rebuild_geometry and not resume_running:
-        print("[CST] rebuilding script-managed geometry")
-        build_msabp_in_cst(
-            project_path=project_path,
-            timeout=command_timeout,
-        )
-        project = open_cst_project(str(project_path))
-        prerequisites = inspect_project(project, command_timeout)
-        print(
-            "[CST] reusable template objects retained: "
-            f"ports={len(prerequisites.ports)}, "
-            f"farfield_monitors={len(prerequisites.farfield_monitors)}"
-        )
-
     if resume_running:
+        prerequisites = inspect_recorded_simulation_setup(project, command_timeout)
+        print(f"active solver: {prerequisites.solver_name}")
+        print(f"ports: {prerequisites.ports}")
+        print(f"farfield monitors: {len(prerequisites.farfield_monitors)}")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         print("[CST] attaching to the existing solver run", flush=True)
         while project.model3d.is_solver_running(timeout=command_timeout):
@@ -312,14 +617,31 @@ def run_and_export_s11(
             save_project=True,
             export_label="export baseline S11",
         )
-    else:
-        return solve_and_export_s11_on_project(
-            project,
-            output_path,
-            overwrite=overwrite,
-            command_timeout=command_timeout,
-            save_project=True,
+
+    clear_results_on_project(project, timeout=command_timeout)
+    if rebuild_geometry:
+        print("[CST] rebuilding script-managed geometry")
+        build_msabp_in_cst(
+            project_path=project_path,
+            timeout=command_timeout,
+            project=project,
+            save_project=False,
         )
+    prerequisites = restore_recorded_simulation_setup(
+        project,
+        timeout=command_timeout,
+    )
+    print(f"active solver: {prerequisites.solver_name}")
+    print(f"ports: {prerequisites.ports}")
+    print(f"farfield monitors: {len(prerequisites.farfield_monitors)}")
+    return solve_and_export_s11_on_project(
+        project,
+        output_path,
+        overwrite=overwrite,
+        command_timeout=command_timeout,
+        save_project=True,
+        clear_results=False,
+    )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

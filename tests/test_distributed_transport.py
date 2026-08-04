@@ -212,7 +212,9 @@ def test_powershell_encoded_command_round_trip_preserves_unicode() -> None:
     assert decode_powershell_command(encode_powershell_command(source)) == source
 
 
-def test_remote_atomic_push_uses_batchmode_scp_hash_and_replace(tmp_path: Path) -> None:
+def test_remote_atomic_push_uses_batchmode_scp_hash_and_forced_move(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "samples.csv"
     source.write_bytes(b"sample_id,value\n0,1.25\n")
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
@@ -239,7 +241,9 @@ def test_remote_atomic_push_uses_batchmode_scp_hash_and_replace(tmp_path: Path) 
     commit_script = _decode_ssh_script(commit)
     assert digest in commit_script
     assert "Get-FileHash" in commit_script
-    assert "[System.IO.File]::Replace" in commit_script
+    assert "Move-Item -LiteralPath $temporary" in commit_script
+    assert "-Destination $destination -Force" in commit_script
+    assert "[System.IO.File]::Replace" not in commit_script
 
 
 def test_remote_atomic_push_cleans_temporary_file_after_scp_error(

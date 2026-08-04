@@ -419,8 +419,17 @@ def push_file_atomic(
             "if ([System.IO.File]::Exists($destination)) {",
         ]
         if overwrite:
-            replace_lines.append(
-                "    [System.IO.File]::Replace($temporary, $destination, $null)"
+            replace_lines.extend(
+                (
+                    # Windows PowerShell on both Maid hosts rejects a null
+                    # backup path passed to File.Replace with
+                    # "The path is not of a legal form".  The temporary file
+                    # is already hash-verified and lives beside the target, so
+                    # a forced same-directory move provides the required
+                    # replace operation without that incompatible overload.
+                    "    Move-Item -LiteralPath $temporary "
+                    "-Destination $destination -Force",
+                )
             )
         else:
             replace_lines.extend(

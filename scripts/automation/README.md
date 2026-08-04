@@ -54,10 +54,18 @@ CSV 保留全部候选，并用 `geometry_valid`、`geometry_error` 标出检查
 
 ## 单次基准仿真
 
-`cst_run_and_export_s11.py` 只重建脚本管理的 `component1:msabp_*`
-几何，保留 CST 工程中已创建的 SMA connector、端口、边界、solver
-配置和 Farfield Monitor。它会清除旧结果、同步运行一次 solver，然后导出
-`1D Results\S-Parameters\S1,1`。
+`cst_run_and_export_s11.py` 保留裸 `.cst` 中的 SMA connector 和边界，并重建脚本管理的
+`component1:msabp_*` 几何。由于独立 `.cst` 不可靠携带 Pick 与 Field Monitor，脚本会在
+每个算例开始时先清除旧结果，完成几何后再按
+`simulations/runs/port-monitor-recording/History_list_record.txt` 的 CST 2025 录制历史重建：
+
+- `Connector:ConFace` 的 edge 30 / vertex 22 Pick 与 Port 1；
+- 2--7 GHz、步长 0.1 GHz 的 51 个 Farfield Monitor；
+- 同一录制过程中的 Hexahedral FIT 网格与时域 solver 设置。
+
+重建后会校验 Port 1 和完整 monitor 序列，再同步运行 solver 并导出
+`1D Results\S-Parameters\S1,1`。录制文件位于被 Git 忽略的运行目录，只作为本次命令转写的
+原始证据；活动自动化不在运行时读取它。
 
 ```powershell
 & 'C:\Users\David\.conda\envs\cstpy\python.exe' `

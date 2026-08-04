@@ -129,6 +129,70 @@ def test_existing_project_solver_order_and_s11_export(
     assert output_path.stat().st_size > 0
 
 
+def test_recorded_setup_vba_preserves_port_and_monitor_history() -> None:
+    cleanup = cst_run_and_export_s11.build_delete_recorded_setup_vba()
+    port = cst_run_and_export_s11.build_recorded_port_vba()
+    monitor = cst_run_and_export_s11.build_recorded_farfield_monitors_vba()
+    solver = cst_run_and_export_s11.build_recorded_solver_parameters_vba()
+
+    assert "Port.Delete 1" in cleanup
+    assert cleanup.count("Monitor.Delete") == 51
+    assert 'Monitor.Delete "farfield (f=2)"' in cleanup
+    assert 'Monitor.Delete "farfield (f=7)"' in cleanup
+    assert "Pick.ClearAllPicks" in cleanup
+    assert 'Pick.PickEdgeFromId "Connector:ConFace", "30", "22"' in port
+    assert '.Coordinates "Picks"' in port
+    assert '.Yrange "-8.89", "-8.89"' in port
+    assert '.CreateUsingLinearStep "2", "7", "0.1"' in monitor
+    assert '.ExportFarfieldSource "True"' in monitor
+    assert '.CalculationType "TD-S"' in solver
+    assert '.StimulationPort "All"' in solver
+
+
+def test_restore_recorded_setup_executes_in_history_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    labels: list[str] = []
+
+    class FakeModel3D:
+        def get_tree_items(self, timeout=None) -> tuple[str, ...]:
+            return (
+                r"Ports\1",
+                *cst_run_and_export_s11.RECORDED_FARFIELD_MONITOR_TREE_ITEMS,
+            )
+
+        def get_active_solver_name(self, timeout=None) -> str:
+            return "Time Domain Solver"
+
+        def is_solver_running(self, timeout=None) -> bool:
+            return False
+
+    class FakeProject:
+        model3d = FakeModel3D()
+
+    monkeypatch.setattr(
+        cst_run_and_export_s11,
+        "execute_project_vba",
+        lambda _project, label, _vba, timeout=None: labels.append(label),
+    )
+
+    prerequisites = cst_run_and_export_s11.restore_recorded_simulation_setup(
+        FakeProject()
+    )
+
+    assert labels == [
+        "delete recorded port and farfield monitors",
+        "recreate connector pick and Port 1",
+        "restore solver frequency range",
+        "restore Hexahedral FIT mesh",
+        "restore time-domain solver acceleration",
+        "restore time-domain solver parameters",
+        "recreate 2 to 7 GHz farfield monitors",
+    ]
+    assert prerequisites.ports == (r"Ports\1",)
+    assert len(prerequisites.farfield_monitors) == 51
+
+
 def test_case_runner_dry_run_never_connects_to_cst(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -180,6 +244,14 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         )
         return report
 
+    def fake_clear(project, *, timeout):
+        assert project is fake_project
+        events.append("clear")
+
+    def fake_restore(project, *, timeout):
+        assert project is fake_project
+        events.append("restore")
+
     def fake_solve(
         project,
         output_path,
@@ -187,11 +259,12 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         overwrite,
         command_timeout,
         save_project,
+        clear_results,
         stage_callback,
     ):
         assert project is fake_project
+        assert clear_results is False
         for stage, event in (
-            ("clearing_results", "clear"),
             ("solving", "solver"),
             ("exporting_s11", "s11"),
         ):
@@ -210,6 +283,16 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
     )
     monkeypatch.setattr(
         case_runner.cst_run_and_export_s11,
+        "clear_results_on_project",
+        fake_clear,
+    )
+    monkeypatch.setattr(
+        case_runner.cst_run_and_export_s11,
+        "restore_recorded_simulation_setup",
+        fake_restore,
+    )
+    monkeypatch.setattr(
+        case_runner.cst_run_and_export_s11,
         "solve_and_export_s11_on_project",
         fake_solve,
     )
@@ -222,7 +305,7 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         stage_callback=stages.append,
     )
 
-    assert events == ["build", "clear", "solver", "s11"]
+    assert events == ["clear", "build", "restore", "solver", "s11"]
     assert result.farfield_source_path is not None
     assert result.farfield_source_path.read_bytes() == b"farfield-source-data"
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
@@ -235,8 +318,9 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
     ] == case_runner.sha256_file(result.farfield_source_path)
     assert stages == [
         "prechecking_geometry",
-        "building_geometry",
         "clearing_results",
+        "building_geometry",
+        "restoring_simulation_setup",
         "solving",
         "exporting_s11",
         "copying_farfield_source",
@@ -259,6 +343,16 @@ def test_case_runner_rejects_unchanged_stale_farfield_source(
         case_runner.cst_build_msabp_geometry,
         "build_msabp_in_cst",
         lambda **_kwargs: cst_build_msabp_geometry.build_polygon_specs()[1],
+    )
+    monkeypatch.setattr(
+        case_runner.cst_run_and_export_s11,
+        "clear_results_on_project",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        case_runner.cst_run_and_export_s11,
+        "restore_recorded_simulation_setup",
+        lambda *_args, **_kwargs: None,
     )
 
     def fake_solve(_project, output_path, **_kwargs):

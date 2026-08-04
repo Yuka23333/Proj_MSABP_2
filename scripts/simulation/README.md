@@ -171,6 +171,28 @@ dry-run 会把任务标记为完成；真实仿真必须使用新的 `--run-id`�
 
 ### 3. 运行真实仿真
 
+第一次做真实双机 smoke 时，推荐直接在 IDE 中打开
+`scripts/simulation/run_remote_real_smoke.py` 并按 F5。脚本顶部集中放置 run ID、设备和样本数；
+默认生成 4 个 Sobol 样本，保存 CSV 后再逐行重建几何复验，然后要求输入一次 `RUN` 才会
+通过 `convallariag5` 与 `coconutg2` 的 Maid Bell 启动真实 CST。这个入口不会传入
+`--dry-run`。
+
+固定的 run ID 使意外中断后的再次 F5 能恢复原 Princess 状态。若采样配置或输入内容有意
+改变，请先给 `RUN_ID` 换一个新值。实时终端输出同时追加到
+`logs/princess.<run-id>.real-smoke.log`，便于完整回传报错。若只想检查输入而不启动 CST：
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\simulation\run_remote_real_smoke.py --prepare-only
+```
+
+命令行无人值守运行时可追加 `--yes` 跳过确认；IDE/F5 默认保留人工确认。
+
+真实 Maid 不依赖裸 `.cst` 保存 Pick、Port 或 Field Monitor。每个算例会先执行
+`DeleteResults`，重建参数化几何，然后按已录制的 CST 2025 VBA 顺序重新创建 Port 1、
+2--7 GHz/0.1 GHz 的 Farfield Monitor、网格与时域 solver 设置，最后才启动 solver。
+因此“`.cst` 可以打开”和“工程拥有有效激励”是两个独立检查条件。
+
 ```powershell
 C:\Users\David\.conda\envs\cstpy\python.exe scripts\simulation\princess.py start `
   --csv data\samples\antenna_samples.csv `
@@ -190,6 +212,10 @@ Princess HTTP 服务并监督租约，直到所有有效任务进入终态。按
 `simulations/runs/maid.<device-id>.lock`，因此旧 Maid 仍存活时，新 Maid 会拒绝启动，
 不会有两个进程同时控制该设备。锁文件可以长期存在；是否被进程持有才代表 Maid 是否
 正在运行，不能仅凭文件存在判断状态。
+
+Princess 覆盖远端已存在的 worklist/runtime 时使用同目录、哈希校验后的强制移动；不再
+调用 Windows PowerShell 5.1 在两台 Maid 上均会报“路径格式不合法”的
+`[System.IO.File]::Replace(..., $null)`。
 
 ### 4. 查看状态
 
