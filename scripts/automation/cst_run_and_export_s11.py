@@ -38,6 +38,7 @@ DEFAULT_OUTPUT_PATH = REPOSITORY_ROOT / "results" / "raw" / "baseline" / "S11.cs
 S11_TREE_PATH = r"1D Results\S-Parameters\S1,1"
 DEFAULT_COMMAND_TIMEOUT = 60.0
 RECORDED_PORT_NUMBER = 1
+RECORDED_PORT_TREE_ITEM = rf"Ports\port{RECORDED_PORT_NUMBER}"
 RECORDED_FARFIELD_MIN_GHZ = "2"
 RECORDED_FARFIELD_MAX_GHZ = "7"
 RECORDED_FARFIELD_STEP_GHZ = "0.1"
@@ -425,9 +426,12 @@ def inspect_recorded_simulation_setup(
     """Require Port 1 and every monitor from the recorded 2--7 GHz sweep."""
 
     prerequisites = inspect_project(project, timeout)
-    expected_port = rf"Ports\{RECORDED_PORT_NUMBER}"
+    expected_port = RECORDED_PORT_TREE_ITEM
     if expected_port not in prerequisites.ports:
-        raise RuntimeError(f"recorded excitation port is missing: {expected_port}")
+        raise RuntimeError(
+            "recorded excitation port is missing: "
+            f"expected={expected_port}, actual={prerequisites.ports}"
+        )
 
     actual_monitors = set(prerequisites.farfield_monitors)
     missing_monitors = [

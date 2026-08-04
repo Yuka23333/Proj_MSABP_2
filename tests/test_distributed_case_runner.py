@@ -157,7 +157,7 @@ def test_restore_recorded_setup_executes_in_history_order(
     class FakeModel3D:
         def get_tree_items(self, timeout=None) -> tuple[str, ...]:
             return (
-                r"Ports\1",
+                cst_run_and_export_s11.RECORDED_PORT_TREE_ITEM,
                 *cst_run_and_export_s11.RECORDED_FARFIELD_MONITOR_TREE_ITEMS,
             )
 
@@ -189,7 +189,9 @@ def test_restore_recorded_setup_executes_in_history_order(
         "restore time-domain solver parameters",
         "recreate 2 to 7 GHz farfield monitors",
     ]
-    assert prerequisites.ports == (r"Ports\1",)
+    assert prerequisites.ports == (
+        cst_run_and_export_s11.RECORDED_PORT_TREE_ITEM,
+    )
     assert len(prerequisites.farfield_monitors) == 51
 
 
