@@ -10,9 +10,7 @@ param(
     [ValidateRange(1, 65535)]
     [int]$Port = 8766,
 
-    [string]$RepoRoot = (
-        Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-    ),
+    [string]$RepoRoot = '',
 
     [string]$PythonPath = (
         'C:\Users\telecom\miniforge3\envs\maid\python.exe'
@@ -49,6 +47,10 @@ function Invoke-MaidPython {
 
 Assert-Administrator
 
+$scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Join-Path $scriptDirectory '..\..'
+}
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
 $PythonPath = (Resolve-Path -LiteralPath $PythonPath).Path
 $bellCli = Join-Path $RepoRoot 'scripts\simulation\maid_bell.py'
