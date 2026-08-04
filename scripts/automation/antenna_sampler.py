@@ -34,6 +34,7 @@ DEFAULT_CONFIG_PATH = (
     REPOSITORY_ROOT / "configs" / "optimization" / "antenna_sampling.json"
 )
 DEFAULT_OUTPUT_PATH = REPOSITORY_ROOT / "data" / "samples" / "antenna_samples.csv"
+CSV_FLOAT_FORMAT = "%.17g"
 
 BRANCH_FIELDS = {
     "reserved_up_1": {
@@ -795,7 +796,11 @@ def save_sampling_result(
     frame = result.frame
     if valid_only:
         frame = frame.loc[frame["geometry_valid"]].reset_index(drop=True)
-    frame.to_csv(output, index=False, float_format="%.12g")
+    # Seventeen significant digits preserve an IEEE-754 binary64 value when
+    # Python reads the CSV again.  Geometry is validated before this point;
+    # a shorter decimal representation can cross a 0.01 mm quantization tie
+    # and make the persisted row differ from the geometry that was validated.
+    frame.to_csv(output, index=False, float_format=CSV_FLOAT_FORMAT)
     resolved_path = output.with_suffix(".resolved.json")
     resolved_path.write_text(
         json.dumps(resolved_plan_to_dict(result.plan), ensure_ascii=False, indent=2),

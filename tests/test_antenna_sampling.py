@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import csv
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -161,3 +163,29 @@ def test_small_sampler_run_preserves_requested_row_count() -> None:
     assert {"sample_id", "geometry_valid", "geometry_error"}.issubset(
         result.frame.columns
     )
+
+
+def test_saved_valid_rows_remain_valid_after_csv_float_round_trip(
+    tmp_path: Path,
+) -> None:
+    plan = antenna_sampler.resolve_sampling_plan(_default_config(), n_samples=16)
+    result = antenna_sampler.generate_samples(plan)
+    output, _resolved = antenna_sampler.save_sampling_result(
+        result,
+        tmp_path / "samples.csv",
+        valid_only=True,
+    )
+
+    with output.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert rows
+    for row in rows:
+        parameters = antenna_sampler.parameters_from_csv_row(row)
+        cst_build_msabp_geometry.build_polygon_specs(
+            parameters=parameters,
+            coordinate_quantum_mm=plan.geometry_policy.coordinate_quantum_mm,
+            allow_disconnected_conductor=(
+                plan.geometry_policy.allow_disconnected_conductor
+            ),
+        )

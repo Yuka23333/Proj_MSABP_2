@@ -49,7 +49,8 @@ python scripts\automation\antenna_sampler.py `
 
 CSV 保留全部候选，并用 `geometry_valid`、`geometry_error` 标出检查结果；
 增加 `--valid-only` 时只写出通过检查的候选。对应的
-`antenna_samples.resolved.json` 会记录每个变量的最终范围和范围来源。
+`antenna_samples.resolved.json` 会记录每个变量的最终范围和范围来源。浮点参数使用
+17 位有效数字写入，保证 Maid 从 CSV 读回的值与通过量化几何检查的值完全一致。
 
 ## 单次基准仿真
 
