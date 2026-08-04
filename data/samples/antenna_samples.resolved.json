@@ -1,0 +1,1094 @@
+{
+  "schema_version": 1,
+  "method": "sobol",
+  "n_samples": 8,
+  "seed": 20260803,
+  "geometry_policy": {
+    "coordinate_quantum_mm": 0.01,
+    "reject_self_intersection": true,
+    "allow_disconnected_conductor": false
+  },
+  "parameters": [
+    {
+      "name": "cpw_guide_p1_x_mm",
+      "group": "cpw.guide.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_guide_p1_y_mm",
+      "group": "cpw.guide.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_guide_p2_x_mm",
+      "group": "cpw.guide.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.5,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_guide_p2_y_mm",
+      "group": "cpw.guide.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_guide_p3_p4_x_mm",
+      "group": "cpw.guide.design",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 1.375,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 1.3475,
+        "max": 1.4025
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_guide_p3_y_mm",
+      "group": "cpw.guide.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.2,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_guide_p4_y_mm",
+      "group": "cpw.guide.design",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 11.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 10.78,
+        "max": 11.22
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_guide_p5_p6_x_mm",
+      "group": "cpw.guide.design",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 0.5,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 0.49,
+        "max": 0.51
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_guide_p7_x_mm",
+      "group": "cpw.guide.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_matching_stub1_cap_x_mm",
+      "group": "cpw.matching_stub1.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 3.5,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_matching_stub1_lower_y_mm",
+      "group": "cpw.matching_stub1.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 5.5,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_matching_stub1_upper_y_mm",
+      "group": "cpw.matching_stub1.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 6.5,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_matching_stub2_cap_x_mm",
+      "group": "cpw.matching_stub2.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 3.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_matching_stub2_lower_y_mm",
+      "group": "cpw.matching_stub2.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 8.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_matching_stub2_upper_y_mm",
+      "group": "cpw.matching_stub2.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 8.9,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_slot_p0_x_mm",
+      "group": "cpw.slot.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_slot_p0_y_mm",
+      "group": "cpw.slot.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_slot_p1_p2_x_mm",
+      "group": "cpw.slot.design",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 2.4,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 2.352,
+        "max": 2.448
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_slot_p1_y_mm",
+      "group": "cpw.slot.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_slot_p2_y_mm",
+      "group": "cpw.slot.design",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 11.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 10.78,
+        "max": 11.22
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_slot_p3_p4_x_mm",
+      "group": "cpw.slot.design",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 1.7,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 1.666,
+        "max": 1.734
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "cpw_slot_p5_x_mm",
+      "group": "cpw.slot.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order1_left_x_mm",
+      "group": "inner.order1",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order1_lower_y_mm",
+      "group": "inner.order1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 20.1,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 19.698,
+        "max": 20.502000000000002
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order1_right_x_mm",
+      "group": "inner.order1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 26.5,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 25.97,
+        "max": 27.03
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order1_upper_y_mm",
+      "group": "inner.order1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 22.1,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 21.658,
+        "max": 22.542
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order2_cap_left_x_mm",
+      "group": "inner.order2.primary",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 5.5,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 5.39,
+        "max": 5.61
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order2_cap_right_x_mm",
+      "group": "inner.order2.primary",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 17.5,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 17.15,
+        "max": 17.85
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order2_cap_y_mm",
+      "group": "inner.order2.primary",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 23.9,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 23.421999999999997,
+        "max": 24.378
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order2_reserved_down1_anchor_t",
+      "group": "inner.order2.reserved.down1.position",
+      "unit": "ratio",
+      "kind": "design",
+      "nominal": 0.18867924528301888,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": 0.0,
+        "max": 1.0
+      },
+      "active_if_branch": "reserved_down_1"
+    },
+    {
+      "name": "inner_slot_order2_reserved_down1_enabled",
+      "group": "inner.order2.reserved.down1.control",
+      "unit": "bool",
+      "kind": "structural",
+      "nominal": false,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order2_reserved_down1_length_mm",
+      "group": "inner.order2.reserved.down1.size",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 0.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": 0.0,
+        "max": null
+      },
+      "active_if_branch": "reserved_down_1"
+    },
+    {
+      "name": "inner_slot_order2_reserved_down1_width_mm",
+      "group": "inner.order2.reserved.down1.size",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 0.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": 0.0,
+        "max": null
+      },
+      "active_if_branch": "reserved_down_1"
+    },
+    {
+      "name": "inner_slot_order2_reserved_down2_anchor_t",
+      "group": "inner.order2.reserved.down2.position",
+      "unit": "ratio",
+      "kind": "design",
+      "nominal": 0.7547169811320755,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": 0.0,
+        "max": 1.0
+      },
+      "active_if_branch": "reserved_down_2"
+    },
+    {
+      "name": "inner_slot_order2_reserved_down2_enabled",
+      "group": "inner.order2.reserved.down2.control",
+      "unit": "bool",
+      "kind": "structural",
+      "nominal": false,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order2_reserved_down2_length_mm",
+      "group": "inner.order2.reserved.down2.size",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 0.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": 0.0,
+        "max": null
+      },
+      "active_if_branch": "reserved_down_2"
+    },
+    {
+      "name": "inner_slot_order2_reserved_down2_width_mm",
+      "group": "inner.order2.reserved.down2.size",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 0.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": 0.0,
+        "max": null
+      },
+      "active_if_branch": "reserved_down_2"
+    },
+    {
+      "name": "inner_slot_order2_reserved_up_anchor_t",
+      "group": "inner.order2.reserved.up.position",
+      "unit": "ratio",
+      "kind": "design",
+      "nominal": 0.8301886792452831,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": 0.0,
+        "max": 1.0
+      },
+      "active_if_branch": "reserved_up_1"
+    },
+    {
+      "name": "inner_slot_order2_reserved_up_enabled",
+      "group": "inner.order2.reserved.up.control",
+      "unit": "bool",
+      "kind": "structural",
+      "nominal": false,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "inner_slot_order2_reserved_up_length_mm",
+      "group": "inner.order2.reserved.up.size",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 0.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": 0.0,
+        "max": null
+      },
+      "active_if_branch": "reserved_up_1"
+    },
+    {
+      "name": "inner_slot_order2_reserved_up_width_mm",
+      "group": "inner.order2.reserved.up.size",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 0.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": 0.0,
+        "max": null
+      },
+      "active_if_branch": "reserved_up_1"
+    },
+    {
+      "name": "lower_outer_slot_order1_opposite_corner_x_mm",
+      "group": "outer.lower.order1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 22.2,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 21.756,
+        "max": 22.644
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "lower_outer_slot_order1_opposite_corner_y_mm",
+      "group": "outer.lower.order1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 12.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 11.76,
+        "max": 12.24
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "lower_outer_slot_order2_branch1_inner_x_mm",
+      "group": "outer.lower.order2.branch1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 17.2,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 16.855999999999998,
+        "max": 17.544
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "lower_outer_slot_order2_branch1_lower_y_mm",
+      "group": "outer.lower.order2.branch1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 1.5,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 1.47,
+        "max": 1.53
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "lower_outer_slot_order2_branch1_upper_y_mm",
+      "group": "outer.lower.order2.branch1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 10.5,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 10.29,
+        "max": 10.71
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "lower_outer_slot_order2_branch2_inner_x_mm",
+      "group": "outer.lower.order2.branch2",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 12.2,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 11.956,
+        "max": 12.443999999999999
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "lower_outer_slot_order2_branch2_lower_y_mm",
+      "group": "outer.lower.order2.branch2",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 4.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 3.92,
+        "max": 4.08
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "lower_outer_slot_order2_branch2_upper_y_mm",
+      "group": "outer.lower.order2.branch2",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 8.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 7.84,
+        "max": 8.16
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "outer_slot_symmetry_axis_x_mm",
+      "group": "outer.symmetry",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "rectangle_length_mm",
+      "group": "outline",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 67.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 65.66,
+        "max": 68.34
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": 0.01,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "rectangle_width_mm",
+      "group": "outline",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 39.8,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 39.004,
+        "max": 40.596
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": 0.01,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "reflector_connector_board_thickness_mm",
+      "group": "reflector.clearance.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 9.52,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "reflector_cutout_depth_mm",
+      "group": "reflector.clearance.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 0.5,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "reflector_cutout_width_adjustment_mm",
+      "group": "reflector.clearance.fixed",
+      "unit": "mm",
+      "kind": "fixed_by_default",
+      "nominal": 2.0,
+      "sample_default": false,
+      "declared_sample": false,
+      "effective_sample": false,
+      "range": null,
+      "range_source": null,
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "upper_outer_slot_order1_bottom_y_mm",
+      "group": "outer.upper.order1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 25.7,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 25.186,
+        "max": 26.214
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "upper_outer_slot_order1_width_mm",
+      "group": "outer.upper.order1",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 10.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 9.8,
+        "max": 10.2
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": 0.0,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "upper_outer_slot_order2_inward_extension_mm",
+      "group": "outer.upper.order2",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 7.0,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 6.859999999999999,
+        "max": 7.140000000000001
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    },
+    {
+      "name": "upper_outer_slot_order2_lower_y_mm",
+      "group": "outer.upper.order2",
+      "unit": "mm",
+      "kind": "design",
+      "nominal": 27.2,
+      "sample_default": true,
+      "declared_sample": true,
+      "effective_sample": true,
+      "range": {
+        "min": 26.656,
+        "max": 27.744
+      },
+      "range_source": "global",
+      "hard_bounds": {
+        "min": null,
+        "max": null
+      },
+      "active_if_branch": null
+    }
+  ]
+}

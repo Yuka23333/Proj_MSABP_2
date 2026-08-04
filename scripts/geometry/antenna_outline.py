@@ -12,6 +12,7 @@ import math
 import os
 import sys
 from dataclasses import dataclass, fields, replace
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from pprint import pprint
 from typing import Sequence
@@ -19,9 +20,10 @@ from typing import Sequence
 import matplotlib.pyplot as plt
 import numpy as np
 from shapely.affinity import scale
-from shapely.geometry import LineString, MultiPolygon, Polygon
+from shapely.geometry import LineString, LinearRing, MultiPolygon, Polygon, box
 from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import orient
+from shapely.validation import explain_validity
 
 
 # =============================================================================
@@ -46,6 +48,11 @@ CPW_MATCHING_STUB2_UPPER_Y_FIXED_MM = 8.9
 REFLECTOR_CONNECTOR_BOARD_THICKNESS_FIXED_MM = 9.52
 REFLECTOR_CUTOUT_WIDTH_ADJUSTMENT_FIXED_MM = 2.0
 REFLECTOR_CUTOUT_DEPTH_FIXED_MM = 0.5
+SMA_SOLDER_KEEPOUT_RIGHT_X_FIXED_MM = 4.76
+SMA_SOLDER_KEEPOUT_UPPER_Y_FIXED_MM = 4.5
+
+COORDINATE_QUANTUM_MM = 0.01
+GEOMETRY_TOLERANCE_MM2 = 1e-12
 
 Point2D = tuple[float, float]
 
@@ -98,25 +105,55 @@ class AntennaOutlineParameters:
     inner_slot_order2_cap_y_mm: float = 23.9
 
     # 常量组 9：内开槽-2阶预留枝条
-    inner_slot_order2_reserved_up_anchor_x_mm: float = 22.0
+    inner_slot_order2_reserved_up_enabled: bool = False
+    inner_slot_order2_reserved_up_anchor_t: float = 22.0 / 26.5
     inner_slot_order2_reserved_up_length_mm: float = 0.0
     inner_slot_order2_reserved_up_width_mm: float = 0.0
-    inner_slot_order2_reserved_down1_anchor_x_mm: float = 5.0
+    inner_slot_order2_reserved_down1_enabled: bool = False
+    inner_slot_order2_reserved_down1_anchor_t: float = 5.0 / 26.5
     inner_slot_order2_reserved_down1_length_mm: float = 0.0
     inner_slot_order2_reserved_down1_width_mm: float = 0.0
-    inner_slot_order2_reserved_down2_anchor_x_mm: float = 20.0
+    inner_slot_order2_reserved_down2_enabled: bool = False
+    inner_slot_order2_reserved_down2_anchor_t: float = 20.0 / 26.5
     inner_slot_order2_reserved_down2_length_mm: float = 0.0
     inner_slot_order2_reserved_down2_width_mm: float = 0.0
 
     # 常量组 10：CPW guide 可调参数
+    cpw_guide_p1_x_mm: float = CPW_GUIDE_P1_X_FIXED_MM
+    cpw_guide_p1_y_mm: float = CPW_GUIDE_P1_Y_FIXED_MM
+    cpw_guide_p2_x_mm: float = CPW_GUIDE_P2_X_FIXED_MM
+    cpw_guide_p2_y_mm: float = CPW_GUIDE_P2_Y_FIXED_MM
+    cpw_guide_p3_y_mm: float = CPW_GUIDE_P3_Y_FIXED_MM
+    cpw_guide_p7_x_mm: float = CPW_GUIDE_P7_X_FIXED_MM
     cpw_guide_p3_p4_x_mm: float = 1.375
     cpw_guide_p4_y_mm: float = 11.0
     cpw_guide_p5_p6_x_mm: float = 0.5
 
     # 常量组 11：CPW slot 可调参数
+    cpw_slot_p0_x_mm: float = CPW_SLOT_P0_X_FIXED_MM
+    cpw_slot_p0_y_mm: float = CPW_SLOT_P0_Y_FIXED_MM
+    cpw_slot_p1_y_mm: float = CPW_SLOT_P1_Y_FIXED_MM
+    cpw_slot_p5_x_mm: float = CPW_SLOT_P5_X_FIXED_MM
     cpw_slot_p1_p2_x_mm: float = 2.4
     cpw_slot_p2_y_mm: float = 11.0
     cpw_slot_p3_p4_x_mm: float = 1.7
+
+    # 常量组 12：CPW matching stubs（默认固定）
+    cpw_matching_stub1_cap_x_mm: float = CPW_MATCHING_STUB1_CAP_X_FIXED_MM
+    cpw_matching_stub1_lower_y_mm: float = CPW_MATCHING_STUB1_LOWER_Y_FIXED_MM
+    cpw_matching_stub1_upper_y_mm: float = CPW_MATCHING_STUB1_UPPER_Y_FIXED_MM
+    cpw_matching_stub2_cap_x_mm: float = CPW_MATCHING_STUB2_CAP_X_FIXED_MM
+    cpw_matching_stub2_lower_y_mm: float = CPW_MATCHING_STUB2_LOWER_Y_FIXED_MM
+    cpw_matching_stub2_upper_y_mm: float = CPW_MATCHING_STUB2_UPPER_Y_FIXED_MM
+
+    # 常量组 13：反射板连接器避让（默认固定）
+    reflector_connector_board_thickness_mm: float = (
+        REFLECTOR_CONNECTOR_BOARD_THICKNESS_FIXED_MM
+    )
+    reflector_cutout_width_adjustment_mm: float = (
+        REFLECTOR_CUTOUT_WIDTH_ADJUSTMENT_FIXED_MM
+    )
+    reflector_cutout_depth_mm: float = REFLECTOR_CUTOUT_DEPTH_FIXED_MM
 
     @property
     def upper_outer_slot_order1_depth_mm(self) -> float:
@@ -238,6 +275,29 @@ class AntennaOutlineParameters:
     def inner_slot_order2_reserved_anchor_y_mm(self) -> float:
         return self.inner_slot_order1_center_y_mm
 
+    def inner_slot_order1_x_at(self, anchor_t: float) -> float:
+        """Return a coordinate attached to the order-1 centreline by ratio."""
+
+        return self.inner_slot_order1_left_x_mm + anchor_t * (
+            self.inner_slot_order1_right_x_mm - self.inner_slot_order1_left_x_mm
+        )
+
+    @property
+    def inner_slot_order2_reserved_up_anchor_x_mm(self) -> float:
+        return self.inner_slot_order1_x_at(self.inner_slot_order2_reserved_up_anchor_t)
+
+    @property
+    def inner_slot_order2_reserved_down1_anchor_x_mm(self) -> float:
+        return self.inner_slot_order1_x_at(
+            self.inner_slot_order2_reserved_down1_anchor_t
+        )
+
+    @property
+    def inner_slot_order2_reserved_down2_anchor_x_mm(self) -> float:
+        return self.inner_slot_order1_x_at(
+            self.inner_slot_order2_reserved_down2_anchor_t
+        )
+
     @property
     def cpw_guide_y2_linked_mm(self) -> float:
         return self.inner_slot_order1_upper_y_mm
@@ -248,8 +308,13 @@ class AntennaOutlineParameters:
 
 
 DEFAULT_ANTENNA_PARAMETERS = AntennaOutlineParameters()
-SAMPLABLE_PARAMETER_NAMES = tuple(
+INDEPENDENT_PARAMETER_NAMES = tuple(
     item.name for item in fields(AntennaOutlineParameters)
+)
+SAMPLABLE_PARAMETER_NAMES = tuple(
+    name
+    for name in INDEPENDENT_PARAMETER_NAMES
+    if not isinstance(getattr(DEFAULT_ANTENNA_PARAMETERS, name), bool)
 )
 
 
@@ -365,16 +430,20 @@ class InnerSlotBranchReservation:
     """Inactive L-system branch parameters reserved for later refinement."""
 
     name: str
+    parent_name: str
+    anchor_t: float
     anchor: Point2D
     growth_direction: Point2D
+    geometry_type: str
+    enabled: bool
     length_mm: float
     width_mm: float
 
     @property
     def is_active(self) -> bool:
-        """A reserved branch becomes active when both dimensions are positive."""
+        """Return the explicit geometry activation state."""
 
-        return self.length_mm > 0.0 and self.width_mm > 0.0
+        return self.enabled
 
 
 @dataclass(frozen=True)
@@ -1699,31 +1768,43 @@ def generate_inner_slot_order2_reservations(
     reservations = (
         InnerSlotBranchReservation(
             name="reserved_up_1",
+            parent_name="inner_slot_order1",
+            anchor_t=float(parameters.inner_slot_order2_reserved_up_anchor_t),
             anchor=(
                 float(parameters.inner_slot_order2_reserved_up_anchor_x_mm),
                 anchor_y_mm,
             ),
             growth_direction=(0.0, 1.0),
+            geometry_type="slot",
+            enabled=bool(parameters.inner_slot_order2_reserved_up_enabled),
             length_mm=float(parameters.inner_slot_order2_reserved_up_length_mm),
             width_mm=float(parameters.inner_slot_order2_reserved_up_width_mm),
         ),
         InnerSlotBranchReservation(
             name="reserved_down_1",
+            parent_name="inner_slot_order1",
+            anchor_t=float(parameters.inner_slot_order2_reserved_down1_anchor_t),
             anchor=(
                 float(parameters.inner_slot_order2_reserved_down1_anchor_x_mm),
                 anchor_y_mm,
             ),
             growth_direction=(0.0, -1.0),
+            geometry_type="slot",
+            enabled=bool(parameters.inner_slot_order2_reserved_down1_enabled),
             length_mm=float(parameters.inner_slot_order2_reserved_down1_length_mm),
             width_mm=float(parameters.inner_slot_order2_reserved_down1_width_mm),
         ),
         InnerSlotBranchReservation(
             name="reserved_down_2",
+            parent_name="inner_slot_order1",
+            anchor_t=float(parameters.inner_slot_order2_reserved_down2_anchor_t),
             anchor=(
                 float(parameters.inner_slot_order2_reserved_down2_anchor_x_mm),
                 anchor_y_mm,
             ),
             growth_direction=(0.0, -1.0),
+            geometry_type="slot",
+            enabled=bool(parameters.inner_slot_order2_reserved_down2_enabled),
             length_mm=float(parameters.inner_slot_order2_reserved_down2_length_mm),
             width_mm=float(parameters.inner_slot_order2_reserved_down2_width_mm),
         ),
@@ -1734,6 +1815,7 @@ def generate_inner_slot_order2_reservations(
         raise ValueError("reserved inner-slot branch names must be unique")
     for reservation in reservations:
         values = (
+            reservation.anchor_t,
             *reservation.anchor,
             *reservation.growth_direction,
             reservation.length_mm,
@@ -1743,9 +1825,17 @@ def generate_inner_slot_order2_reservations(
             raise ValueError(f"{reservation.name} contains a non-finite parameter")
         if reservation.length_mm < 0.0 or reservation.width_mm < 0.0:
             raise ValueError(f"{reservation.name} dimensions cannot be negative")
-        if (reservation.length_mm == 0.0) != (reservation.width_mm == 0.0):
+        if not 0.0 <= reservation.anchor_t <= 1.0:
+            raise ValueError(f"{reservation.name} anchor_t must be in [0, 1]")
+        if reservation.parent_name != "inner_slot_order1":
+            raise ValueError(f"{reservation.name} has an unsupported parent")
+        if reservation.geometry_type != "slot":
+            raise ValueError(f"{reservation.name} has an unsupported geometry type")
+        if reservation.enabled and (
+            reservation.length_mm <= 0.0 or reservation.width_mm <= 0.0
+        ):
             raise ValueError(
-                f"{reservation.name} length and width must activate together"
+                f"{reservation.name} requires positive length and width when enabled"
             )
         if not (
             parameters.inner_slot_order1_left_x_mm
@@ -1797,6 +1887,17 @@ def build_active_reserved_inner_slot_branches(
     return tuple(centerlines), tuple(polygons)
 
 
+def build_sma_solder_keepout() -> Polygon:
+    """Return the fixed SMA solder keepout including its Y-axis mirror."""
+
+    return box(
+        -SMA_SOLDER_KEEPOUT_RIGHT_X_FIXED_MM,
+        0.0,
+        SMA_SOLDER_KEEPOUT_RIGHT_X_FIXED_MM,
+        SMA_SOLDER_KEEPOUT_UPPER_Y_FIXED_MM,
+    )
+
+
 def build_step_3_2_geometry(
     patch: Polygon,
     parameters: AntennaOutlineParameters | None = None,
@@ -1839,6 +1940,7 @@ def build_step_3_2_geometry(
         reservation.is_active for reservation in reserved_branches
     )
     substrate = Polygon(generate_rectangle(parameters))
+    sma_solder_keepout = build_sma_solder_keepout()
     combined_inner_slot: BaseGeometry = base_combined_inner_slot
     for reservation, branch in zip(
         (item for item in reserved_branches if item.is_active),
@@ -1848,6 +1950,14 @@ def build_step_3_2_geometry(
         if not substrate.covers(branch):
             raise ValueError(
                 f"active reserved branch {reservation.name} leaves the substrate"
+            )
+        if (
+            reservation.geometry_type == "slot"
+            and branch.intersection(sma_solder_keepout).area
+            > GEOMETRY_TOLERANCE_MM2
+        ):
+            raise ValueError(
+                f"active slot branch {reservation.name} covers the SMA solder keepout"
             )
         combined_inner_slot = combined_inner_slot.union(branch)
     if not isinstance(combined_inner_slot, Polygon):
@@ -1964,9 +2074,9 @@ def build_step_3_2_geometry(
             )
             == 2
         ),
-        "reserved branches are independently active": all(
-            reservation.is_active
-            == (reservation.length_mm > 0.0 and reservation.width_mm > 0.0)
+        "enabled reserved branches have positive dimensions": all(
+            not reservation.is_active
+            or (reservation.length_mm > 0.0 and reservation.width_mm > 0.0)
             for reservation in reserved_branches
         ),
         "Patch object is returned without subtraction": result_patch is patch,
@@ -2017,15 +2127,31 @@ def generate_cpw_guide_points(
     p3_p4_x_mm = float(parameters.cpw_guide_p3_p4_x_mm)
     p4_y_mm = float(parameters.cpw_guide_p4_y_mm)
     p5_p6_x_mm = float(parameters.cpw_guide_p5_p6_x_mm)
-    tunable_values = (p3_p4_x_mm, p4_y_mm, p5_p6_x_mm)
-    if not all(math.isfinite(value) for value in tunable_values):
-        raise ValueError("CPW tunable parameters must be finite")
-    if p3_p4_x_mm <= max(CPW_GUIDE_P2_X_FIXED_MM, p5_p6_x_mm):
+    p1_x_mm = float(parameters.cpw_guide_p1_x_mm)
+    p1_y_mm = float(parameters.cpw_guide_p1_y_mm)
+    p2_x_mm = float(parameters.cpw_guide_p2_x_mm)
+    p2_y_mm = float(parameters.cpw_guide_p2_y_mm)
+    p3_y_mm = float(parameters.cpw_guide_p3_y_mm)
+    p7_x_mm = float(parameters.cpw_guide_p7_x_mm)
+    values = (
+        p1_x_mm,
+        p1_y_mm,
+        p2_x_mm,
+        p2_y_mm,
+        p3_y_mm,
+        p7_x_mm,
+        p3_p4_x_mm,
+        p4_y_mm,
+        p5_p6_x_mm,
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("CPW guide parameters must be finite")
+    if p3_p4_x_mm <= max(p2_x_mm, p5_p6_x_mm):
         raise ValueError("CPW P3/P4 x must exceed both P2 x and P5/P6 x")
-    if p5_p6_x_mm <= CPW_GUIDE_P1_X_FIXED_MM:
-        raise ValueError("CPW P5/P6 x must lie to the right of the y-axis")
-    if p4_y_mm <= CPW_GUIDE_P3_Y_FIXED_MM:
-        raise ValueError("CPW P4 y must lie above the fixed P3 y")
+    if p5_p6_x_mm <= p1_x_mm:
+        raise ValueError("CPW P5/P6 x must lie to the right of P1")
+    if p4_y_mm <= p3_y_mm:
+        raise ValueError("CPW P4 y must lie above P3 y")
 
     y1_mm = p4_y_mm + (p3_p4_x_mm - p5_p6_x_mm)
     y2_mm = float(parameters.cpw_guide_y2_linked_mm)
@@ -2033,14 +2159,14 @@ def generate_cpw_guide_points(
         raise ValueError("CPW guide requires P4_y < y1 < linked order-1 top y2")
 
     return [
-        (CPW_GUIDE_P1_X_FIXED_MM, CPW_GUIDE_P1_Y_FIXED_MM),
-        (CPW_GUIDE_P2_X_FIXED_MM, CPW_GUIDE_P2_Y_FIXED_MM),
-        (p3_p4_x_mm, CPW_GUIDE_P3_Y_FIXED_MM),
+        (p1_x_mm, p1_y_mm),
+        (p2_x_mm, p2_y_mm),
+        (p3_p4_x_mm, p3_y_mm),
         (p3_p4_x_mm, p4_y_mm),
         (p5_p6_x_mm, y1_mm),
         (p5_p6_x_mm, y2_mm),
-        (CPW_GUIDE_P7_X_FIXED_MM, y2_mm),
-        (CPW_GUIDE_P1_X_FIXED_MM, CPW_GUIDE_P1_Y_FIXED_MM),
+        (p7_x_mm, y2_mm),
+        (p1_x_mm, p1_y_mm),
     ]
 
 
@@ -2127,20 +2253,28 @@ def build_step_3_3_geometry(
     y2_mm = float(parameters.inner_slot_order1_upper_y_mm)
     anchor_points = tuple((float(x), float(y)) for x, y in cpw_guide_points[:-1])
     expected_anchor_points = (
-        (0.0, 0.0),
-        (0.5, 0.0),
-        (p3_p4_x_mm, 0.2),
+        (parameters.cpw_guide_p1_x_mm, parameters.cpw_guide_p1_y_mm),
+        (parameters.cpw_guide_p2_x_mm, parameters.cpw_guide_p2_y_mm),
+        (p3_p4_x_mm, parameters.cpw_guide_p3_y_mm),
         (p3_p4_x_mm, p4_y_mm),
         (p5_p6_x_mm, y1_mm),
         (p5_p6_x_mm, y2_mm),
-        (0.0, y2_mm),
+        (parameters.cpw_guide_p7_x_mm, y2_mm),
     )
     overlap_height_mm = max(
         0.0,
         min(y2_mm, parameters.inner_slot_order1_upper_y_mm)
         - max(y1_mm, parameters.inner_slot_order1_lower_y_mm),
     )
-    expected_overlap_area_mm2 = p5_p6_x_mm * overlap_height_mm
+    overlap_width_mm = max(
+        0.0,
+        min(p5_p6_x_mm, parameters.inner_slot_order1_right_x_mm)
+        - max(
+            parameters.cpw_guide_p7_x_mm,
+            parameters.inner_slot_order1_left_x_mm,
+        ),
+    )
+    expected_overlap_area_mm2 = overlap_width_mm * overlap_height_mm
     expected_combined_area_mm2 = (
         combined_inner_slot.area + cpw_guide.area - expected_overlap_area_mm2
     )
@@ -2150,9 +2284,11 @@ def build_step_3_3_geometry(
     patch_is_unchanged = result_patch.equals_exact(patch, tolerance=0.0)
 
     checks = {
-        "CPW P1 and P2 remain fixed": (
-            anchor_points[0] == (CPW_GUIDE_P1_X_FIXED_MM, CPW_GUIDE_P1_Y_FIXED_MM)
-            and anchor_points[1] == (CPW_GUIDE_P2_X_FIXED_MM, CPW_GUIDE_P2_Y_FIXED_MM)
+        "CPW P1 and P2 match parameter definitions": (
+            anchor_points[0]
+            == (parameters.cpw_guide_p1_x_mm, parameters.cpw_guide_p1_y_mm)
+            and anchor_points[1]
+            == (parameters.cpw_guide_p2_x_mm, parameters.cpw_guide_p2_y_mm)
         ),
         "CPW P3/P4 x values are linked": math.isclose(
             anchor_points[2][0],
@@ -2265,13 +2401,25 @@ def generate_cpw_slot_points(
     outer_x_mm = float(parameters.cpw_slot_p1_p2_x_mm)
     p2_y_mm = float(parameters.cpw_slot_p2_y_mm)
     inner_x_mm = float(parameters.cpw_slot_p3_p4_x_mm)
-    values = (outer_x_mm, p2_y_mm, inner_x_mm)
+    p0_x_mm = float(parameters.cpw_slot_p0_x_mm)
+    p0_y_mm = float(parameters.cpw_slot_p0_y_mm)
+    p1_y_mm = float(parameters.cpw_slot_p1_y_mm)
+    p5_x_mm = float(parameters.cpw_slot_p5_x_mm)
+    values = (
+        p0_x_mm,
+        p0_y_mm,
+        p1_y_mm,
+        p5_x_mm,
+        outer_x_mm,
+        p2_y_mm,
+        inner_x_mm,
+    )
     if not all(math.isfinite(value) for value in values):
-        raise ValueError("CPW-slot tunable parameters must be finite")
-    if not outer_x_mm > inner_x_mm > CPW_SLOT_P0_X_FIXED_MM:
-        raise ValueError("CPW slot requires P1/P2 x > P3/P4 x > 0")
-    if p2_y_mm <= CPW_SLOT_P1_Y_FIXED_MM:
-        raise ValueError("CPW-slot P2 y must be positive")
+        raise ValueError("CPW-slot parameters must be finite")
+    if not outer_x_mm > inner_x_mm > max(p0_x_mm, p5_x_mm):
+        raise ValueError("CPW slot requires outer x > inner x > P0/P5 x")
+    if p2_y_mm <= p1_y_mm:
+        raise ValueError("CPW-slot P2 y must lie above P1 y")
 
     p3_y_mm = p2_y_mm + (outer_x_mm - inner_x_mm)
     y1_mm = float(parameters.cpw_slot_y1_linked_mm)
@@ -2279,13 +2427,13 @@ def generate_cpw_slot_points(
         raise ValueError("CPW slot requires P2_y < P3_y < linked y1")
 
     return [
-        (CPW_SLOT_P0_X_FIXED_MM, CPW_SLOT_P0_Y_FIXED_MM),
-        (outer_x_mm, CPW_SLOT_P1_Y_FIXED_MM),
+        (p0_x_mm, p0_y_mm),
+        (outer_x_mm, p1_y_mm),
         (outer_x_mm, p2_y_mm),
         (inner_x_mm, p3_y_mm),
         (inner_x_mm, y1_mm),
-        (CPW_SLOT_P5_X_FIXED_MM, y1_mm),
-        (CPW_SLOT_P0_X_FIXED_MM, CPW_SLOT_P0_Y_FIXED_MM),
+        (p5_x_mm, y1_mm),
+        (p0_x_mm, p0_y_mm),
     ]
 
 
@@ -2332,14 +2480,14 @@ def generate_cpw_matching_stub_centerlines(
     start_x_mm = float(parameters.cpw_slot_p1_p2_x_mm)
     stub_specs = (
         (
-            CPW_MATCHING_STUB1_CAP_X_FIXED_MM,
-            CPW_MATCHING_STUB1_LOWER_Y_FIXED_MM,
-            CPW_MATCHING_STUB1_UPPER_Y_FIXED_MM,
+            parameters.cpw_matching_stub1_cap_x_mm,
+            parameters.cpw_matching_stub1_lower_y_mm,
+            parameters.cpw_matching_stub1_upper_y_mm,
         ),
         (
-            CPW_MATCHING_STUB2_CAP_X_FIXED_MM,
-            CPW_MATCHING_STUB2_LOWER_Y_FIXED_MM,
-            CPW_MATCHING_STUB2_UPPER_Y_FIXED_MM,
+            parameters.cpw_matching_stub2_cap_x_mm,
+            parameters.cpw_matching_stub2_lower_y_mm,
+            parameters.cpw_matching_stub2_upper_y_mm,
         ),
     )
     centerlines: list[LineString] = []
@@ -2363,15 +2511,23 @@ def generate_cpw_matching_stub_centerlines(
 
 def expand_cpw_matching_stubs(
     centerlines: Sequence[LineString],
+    parameters: AntennaOutlineParameters | None = None,
 ) -> tuple[Polygon, Polygon]:
     """Buffer both matching-stub branches vertically using flat end caps."""
 
+    parameters = _resolve_parameters(parameters)
     if len(centerlines) != 2:
         raise ValueError(f"two matching stubs are required, got {len(centerlines)}")
     buffer_distances_mm = (
-        (CPW_MATCHING_STUB1_UPPER_Y_FIXED_MM - CPW_MATCHING_STUB1_LOWER_Y_FIXED_MM)
+        (
+            parameters.cpw_matching_stub1_upper_y_mm
+            - parameters.cpw_matching_stub1_lower_y_mm
+        )
         / 2.0,
-        (CPW_MATCHING_STUB2_UPPER_Y_FIXED_MM - CPW_MATCHING_STUB2_LOWER_Y_FIXED_MM)
+        (
+            parameters.cpw_matching_stub2_upper_y_mm
+            - parameters.cpw_matching_stub2_lower_y_mm
+        )
         / 2.0,
     )
     stubs: list[Polygon] = []
@@ -2420,7 +2576,7 @@ def build_step_3_4_geometry(
     cpw_slot_points = generate_cpw_slot_points(parameters)
     cpw_slot = validate_cpw_slot(cpw_slot_points, parameters)
     stub_centerlines = generate_cpw_matching_stub_centerlines(parameters)
-    stub_slots = expand_cpw_matching_stubs(stub_centerlines)
+    stub_slots = expand_cpw_matching_stubs(stub_centerlines, parameters)
 
     slot_with_stubs = cpw_slot.union(stub_slots[0]).union(stub_slots[1])
     if not isinstance(slot_with_stubs, Polygon):
@@ -2469,37 +2625,39 @@ def build_step_3_4_geometry(
     y1_mm = float(parameters.inner_slot_order1_lower_y_mm)
     anchor_points = tuple((float(x), float(y)) for x, y in cpw_slot_points[:-1])
     expected_anchor_points = (
-        (0.0, 0.0),
-        (outer_x_mm, 0.0),
+        (parameters.cpw_slot_p0_x_mm, parameters.cpw_slot_p0_y_mm),
+        (outer_x_mm, parameters.cpw_slot_p1_y_mm),
         (outer_x_mm, p2_y_mm),
         (inner_x_mm, p3_y_mm),
         (inner_x_mm, y1_mm),
-        (0.0, y1_mm),
+        (parameters.cpw_slot_p5_x_mm, y1_mm),
     )
-    expected_slot_area_mm2 = (
-        outer_x_mm * p2_y_mm
-        + (outer_x_mm + inner_x_mm) / 2.0 * (outer_x_mm - inner_x_mm)
-        + inner_x_mm * (y1_mm - p3_y_mm)
-    )
+    expected_slot_area_mm2 = Polygon(expected_anchor_points).area
     expected_stub_bounds = (
         (
             outer_x_mm,
-            CPW_MATCHING_STUB1_LOWER_Y_FIXED_MM,
-            CPW_MATCHING_STUB1_CAP_X_FIXED_MM,
-            CPW_MATCHING_STUB1_UPPER_Y_FIXED_MM,
+            parameters.cpw_matching_stub1_lower_y_mm,
+            parameters.cpw_matching_stub1_cap_x_mm,
+            parameters.cpw_matching_stub1_upper_y_mm,
         ),
         (
             outer_x_mm,
-            CPW_MATCHING_STUB2_LOWER_Y_FIXED_MM,
-            CPW_MATCHING_STUB2_CAP_X_FIXED_MM,
-            CPW_MATCHING_STUB2_UPPER_Y_FIXED_MM,
+            parameters.cpw_matching_stub2_lower_y_mm,
+            parameters.cpw_matching_stub2_cap_x_mm,
+            parameters.cpw_matching_stub2_upper_y_mm,
         ),
     )
     expected_stub_areas_mm2 = (
-        (CPW_MATCHING_STUB1_CAP_X_FIXED_MM - outer_x_mm)
-        * (CPW_MATCHING_STUB1_UPPER_Y_FIXED_MM - CPW_MATCHING_STUB1_LOWER_Y_FIXED_MM),
-        (CPW_MATCHING_STUB2_CAP_X_FIXED_MM - outer_x_mm)
-        * (CPW_MATCHING_STUB2_UPPER_Y_FIXED_MM - CPW_MATCHING_STUB2_LOWER_Y_FIXED_MM),
+        (parameters.cpw_matching_stub1_cap_x_mm - outer_x_mm)
+        * (
+            parameters.cpw_matching_stub1_upper_y_mm
+            - parameters.cpw_matching_stub1_lower_y_mm
+        ),
+        (parameters.cpw_matching_stub2_cap_x_mm - outer_x_mm)
+        * (
+            parameters.cpw_matching_stub2_upper_y_mm
+            - parameters.cpw_matching_stub2_lower_y_mm
+        ),
     )
     expected_slot_with_stubs_area_mm2 = expected_slot_area_mm2 + sum(
         expected_stub_areas_mm2
@@ -2664,33 +2822,150 @@ def build_antenna_closed_polygons(
     return result_patch, symmetric_slot, symmetric_guide
 
 
-def polygon_exterior_to_closed_points(polygon: Polygon) -> list[Point2D]:
-    """Convert one validated hole-free Polygon to explicit closed points."""
+def quantize_coordinate_mm(
+    value: float,
+    quantum_mm: float = COORDINATE_QUANTUM_MM,
+) -> float:
+    """Quantize one finite coordinate to the nearest grid using half-up ties."""
+
+    try:
+        decimal_value = Decimal(str(value))
+        decimal_quantum = Decimal(str(quantum_mm))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("coordinate and quantum must be finite numbers") from exc
+    if not decimal_value.is_finite():
+        raise ValueError("coordinate must be finite")
+    if not decimal_quantum.is_finite() or decimal_quantum <= 0:
+        raise ValueError("coordinate quantum must be finite and positive")
+    try:
+        grid_index = (decimal_value / decimal_quantum).quantize(
+            Decimal("1"),
+            rounding=ROUND_HALF_UP,
+        )
+    except InvalidOperation as exc:
+        raise ValueError("coordinate cannot be represented on the requested grid") from exc
+    quantized = float(grid_index * decimal_quantum)
+    return 0.0 if quantized == 0.0 else quantized
+
+
+def _closed_curve_signed_area(points: Sequence[Point2D]) -> float:
+    return 0.5 * sum(
+        x_current * y_next - x_next * y_current
+        for (x_current, y_current), (x_next, y_next) in zip(
+            points[:-1],
+            points[1:],
+            strict=True,
+        )
+    )
+
+
+def quantize_and_validate_closed_polygon_points(
+    points: Sequence[Point2D],
+    *,
+    curve_name: str,
+    quantum_mm: float = COORDINATE_QUANTUM_MM,
+) -> list[Point2D]:
+    """Return one CST-ready curve after quantization and self-cross checks."""
+
+    raw_points = list(points)
+    if len(raw_points) < 4:
+        raise ValueError(f"{curve_name} requires at least three vertices plus closure")
+    if raw_points[0] != raw_points[-1]:
+        raise ValueError(f"{curve_name} is not explicitly closed before quantization")
+
+    quantized: list[Point2D] = []
+    for index, point in enumerate(raw_points):
+        if len(point) != 2:
+            raise ValueError(f"{curve_name} point {index} is not two-dimensional")
+        quantized.append(
+            (
+                quantize_coordinate_mm(point[0], quantum_mm),
+                quantize_coordinate_mm(point[1], quantum_mm),
+            )
+        )
+    quantized[-1] = quantized[0]
+
+    for index, (current, following) in enumerate(
+        zip(quantized[:-1], quantized[1:], strict=True)
+    ):
+        if current == following:
+            raise ValueError(
+                f"{curve_name} edge {index} collapsed after {quantum_mm:g} mm "
+                "coordinate quantization"
+            )
+    if len(set(quantized[:-1])) < 3:
+        raise ValueError(
+            f"{curve_name} has fewer than three distinct quantized vertices"
+        )
+
+    ring = LinearRing(quantized)
+    if not ring.is_simple:
+        raise ValueError(
+            f"{curve_name} self-intersects or self-touches after "
+            f"{quantum_mm:g} mm coordinate quantization"
+        )
+    polygon = Polygon(quantized)
+    if polygon.is_empty or not polygon.is_valid:
+        raise ValueError(
+            f"{curve_name} is invalid after coordinate quantization: "
+            f"{explain_validity(polygon)}"
+        )
+    if len(polygon.interiors) != 0:
+        raise ValueError(f"{curve_name} unexpectedly contains an interior ring")
+    if polygon.area <= GEOMETRY_TOLERANCE_MM2:
+        raise ValueError(f"{curve_name} has zero area after coordinate quantization")
+    if _closed_curve_signed_area(quantized) <= 0.0:
+        raise ValueError(
+            f"{curve_name} must retain counterclockwise point order; "
+            "the CST extrusion thickness controls its Z direction"
+        )
+    return quantized
+
+
+def polygon_exterior_to_closed_points(
+    polygon: Polygon,
+    *,
+    curve_name: str = "antenna polygon",
+    quantum_mm: float = COORDINATE_QUANTUM_MM,
+) -> list[Point2D]:
+    """Convert one hole-free Polygon to a quantized CST-ready closed curve."""
 
     if polygon.is_empty or not polygon.is_valid:
         raise ValueError("cannot extract points from an empty or invalid Polygon")
     if len(polygon.interiors) != 0:
         raise ValueError("antenna export polygons must not contain interior rings")
-    points = [
+    raw_points = [
         (
             0.0 if float(x) == 0.0 else float(x),
             0.0 if float(y) == 0.0 else float(y),
         )
         for x, y in polygon.exterior.coords
     ]
-    if len(points) < 4 or points[0] != points[-1]:
-        raise ValueError("antenna polygon exterior is not explicitly closed")
-    return points
+    return quantize_and_validate_closed_polygon_points(
+        raw_points,
+        curve_name=curve_name,
+        quantum_mm=quantum_mm,
+    )
 
 
 def generate_complete_antenna_point_lists(
     parameters: AntennaOutlineParameters | None = None,
+    *,
+    quantum_mm: float = COORDINATE_QUANTUM_MM,
 ) -> list[list[Point2D]]:
-    """Return final Patch, symmetric slot, and symmetric guide point lists."""
+    """Return the three quantized, self-intersection-free CST point lists."""
 
     return [
-        polygon_exterior_to_closed_points(polygon)
-        for polygon in build_antenna_closed_polygons(parameters)
+        polygon_exterior_to_closed_points(
+            polygon,
+            curve_name=curve_name,
+            quantum_mm=quantum_mm,
+        )
+        for curve_name, polygon in zip(
+            ("patch", "symmetric slot", "symmetric guide"),
+            build_antenna_closed_polygons(parameters),
+            strict=True,
+        )
     ]
 
 
@@ -2703,10 +2978,10 @@ def generate_reflector_outline_points(
     half_length = parameters.rectangle_length_mm / 2.0
     cutout_half_width = (
         half_length
-        - REFLECTOR_CONNECTOR_BOARD_THICKNESS_FIXED_MM
-        + REFLECTOR_CUTOUT_WIDTH_ADJUSTMENT_FIXED_MM
+        - parameters.reflector_connector_board_thickness_mm
+        + parameters.reflector_cutout_width_adjustment_mm
     )
-    depth = REFLECTOR_CUTOUT_DEPTH_FIXED_MM
+    depth = parameters.reflector_cutout_depth_mm
     return [
         (-half_length, 0.0),
         (-cutout_half_width, 0.0),

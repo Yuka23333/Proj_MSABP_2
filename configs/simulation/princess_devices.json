@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "bind_host": "100.99.182.30",
+  "advertise_url": "http://100.99.182.30:8765",
+  "port": 8765,
+  "devices": [
+    {
+      "id": "convallariag5",
+      "enabled": false,
+      "launch_mode": "ssh_process",
+      "ssh_target": "telecom@convallariag5",
+      "repo_root": "D:\\Academic\\Proj_MSABP_2",
+      "python_path": "C:\\Users\\telecom\\miniforge3\\envs\\maid\\python.exe",
+      "scheduled_task_name": null,
+      "runtime_config_path": "D:\\Academic\\Proj_MSABP_2\\simulations\\runs\\active_maid_runtime.json",
+      "ssh_port": 22,
+      "ssh_connect_timeout_seconds": 10.0,
+      "identity_file": null
+    },
+    {
+      "id": "coconutg2",
+      "enabled": false,
+      "launch_mode": "ssh_process",
+      "ssh_target": "telecom@coconutg2",
+      "repo_root": "D:\\Academic\\Proj_MSABP_2",
+      "python_path": "C:\\Users\\telecom\\miniforge3\\envs\\maid\\python.exe",
+      "scheduled_task_name": null,
+      "runtime_config_path": "D:\\Academic\\Proj_MSABP_2\\simulations\\runs\\active_maid_runtime.json",
+      "ssh_port": 22,
+      "ssh_connect_timeout_seconds": 10.0,
+      "identity_file": null
+    },
+    {
+      "id": "local",
+      "enabled": false,
+      "launch_mode": "local",
+      "ssh_target": null,
+      "repo_root": "D:\\Academic\\Proj_MSABP_2",
+      "python_path": "C:\\Users\\David\\.conda\\envs\\cstpy\\python.exe",
+      "scheduled_task_name": null,
+      "runtime_config_path": "D:\\Academic\\Proj_MSABP_2\\simulations\\runs\\active_maid_runtime.json",
+      "ssh_port": 22,
+      "ssh_connect_timeout_seconds": 10.0,
+      "identity_file": null
+    }
+  ]
+}

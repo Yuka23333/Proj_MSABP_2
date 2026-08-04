@@ -4,7 +4,7 @@
 
 - `optimization/`：生成候选点或启动优化循环；
 - `geometry/`：二维参数化几何、合法性检查和预览；
-- `simulation/`：创建算例、运行 CST、导出结果；
+- [`simulation/`](simulation/README.md)：创建算例、运行 CST、导出结果；包含 Princess/Maid 分布式仿真入口与操作说明；
 - `postprocessing/`：汇总指标、生成图表和报告；
 - `utilities/`：数据检查、格式转换等独立小工具。
 
@@ -14,7 +14,8 @@
 
 `geometry/antenna_outline.py` 在被导入时通过
 `generate_complete_antenna_point_lists()` 返回 Patch、对称 slot 和对称 guide
-三条显式闭合点列。终端直接运行时只打印这三条列表；从 IDE 按 F5/调试运行时，
+三条显式闭合点列。导出点坐标统一量化到 0.01 mm，并对每条点列单独检查
+量化后的折叠边、自交、自触和方向。终端直接运行时只打印这三条列表；从 IDE 按 F5/调试运行时，
 会显示包含基板、反射板凹口、外槽、内槽、CPW slot/stub 和 CPW guide 的完整版
 分层预览。
 

@@ -3,7 +3,7 @@
 # CST's Python API is not downloaded from PyPI.  The final pip requirement
 # installs the link wheel shipped with CST Studio Suite 2025 and makes the
 # local CST Python libraries visible to this environment.
-name: cst_maid
+name: maid
 
 channels:
   - conda-forge

@@ -30,39 +30,32 @@ CURVE_NAMES = (
 )
 
 
-def polygon_exterior_to_closed_points(polygon: Polygon) -> list[Point2D]:
-    """Convert one hole-free Polygon exterior into an explicit closed list."""
+def polygon_exterior_to_closed_points(
+    polygon: Polygon,
+    *,
+    curve_name: str = "antenna polygon",
+    quantum_mm: float = antenna_outline.COORDINATE_QUANTUM_MM,
+) -> list[Point2D]:
+    """Delegate CST-ready quantization and curve validation to the geometry API."""
 
-    if polygon.is_empty:
-        raise ValueError("cannot extract points from an empty Polygon")
-    if not polygon.is_valid:
-        raise ValueError("cannot extract points from an invalid Polygon")
-    if len(polygon.interiors) != 0:
-        raise ValueError(
-            "expected one exterior curve without interior rings, "
-            f"got {len(polygon.interiors)} interior ring(s)"
-        )
-
-    points = [
-        (
-            0.0 if float(x) == 0.0 else float(x),
-            0.0 if float(y) == 0.0 else float(y),
-        )
-        for x, y in polygon.exterior.coords
-    ]
-    if len(points) < 4:
-        raise ValueError("a closed polygon curve requires at least four points")
-    if points[0] != points[-1]:
-        raise ValueError("Shapely exterior coordinate sequence is not closed")
-    return points
+    return antenna_outline.polygon_exterior_to_closed_points(
+        polygon,
+        curve_name=curve_name,
+        quantum_mm=quantum_mm,
+    )
 
 
 def generate_closed_curve_point_lists(
     parameters: antenna_outline.AntennaOutlineParameters | None = None,
+    *,
+    quantum_mm: float = antenna_outline.COORDINATE_QUANTUM_MM,
 ) -> list[list[Point2D]]:
-    """Build the antenna and return its three closed curves as point lists."""
+    """Build the antenna and return three quantized, validated closed curves."""
 
-    curves = antenna_outline.generate_complete_antenna_point_lists(parameters)
+    curves = antenna_outline.generate_complete_antenna_point_lists(
+        parameters,
+        quantum_mm=quantum_mm,
+    )
     if len(curves) != len(CURVE_NAMES):
         raise ValueError(f"expected three curves, got {len(curves)}")
     return curves
@@ -70,10 +63,12 @@ def generate_closed_curve_point_lists(
 
 def generate_named_closed_curve_points(
     parameters: antenna_outline.AntennaOutlineParameters | None = None,
+    *,
+    quantum_mm: float = antenna_outline.COORDINATE_QUANTUM_MM,
 ) -> dict[str, list[Point2D]]:
     """Return the same curves keyed by stable descriptive names."""
 
-    curves = generate_closed_curve_point_lists(parameters)
+    curves = generate_closed_curve_point_lists(parameters, quantum_mm=quantum_mm)
     return dict(zip(CURVE_NAMES, curves, strict=True))
 
 

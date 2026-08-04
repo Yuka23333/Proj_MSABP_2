@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "sampling": {
+    "method": "sobol",
+    "n_samples": 8,
+    "seed": 20260803,
+    "global": {
+      "range": {
+        "mode": "relative",
+        "lower": -0.02,
+        "upper": 0.02,
+        "reference": "nominal"
+      }
+    },
+    "groups": {},
+    "parameters": {}
+  },
+  "branches": {
+    "reserved_up_1": {
+      "enabled": false
+    },
+    "reserved_down_1": {
+      "enabled": false
+    },
+    "reserved_down_2": {
+      "enabled": false
+    }
+  },
+  "geometry_policy": {
+    "coordinate_quantum_mm": 0.01,
+    "reject_self_intersection": true,
+    "allow_disconnected_conductor": false
+  }
+}
