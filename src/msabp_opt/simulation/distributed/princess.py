@@ -694,7 +694,11 @@ class PrincessCoordinator:
         if not isinstance(artifacts, Mapping):
             raise ApiError(HTTPStatus.BAD_REQUEST, "manifest artifacts must be an object")
         status = manifest.get("status")
-        required = {"s11", "farfield_source"} if status == "completed" else set()
+        required = (
+            {"s11", "rad_eff", "tot_eff", "farfield_source"}
+            if status == "completed"
+            else set()
+        )
         missing = required - set(artifacts)
         if missing:
             raise ApiError(

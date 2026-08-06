@@ -8,10 +8,11 @@ because it starts licensed CST solvers and performs real simulations.
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Sequence, TextIO
 
@@ -33,10 +34,11 @@ from scripts.automation import cst_build_msabp_geometry  # noqa: E402
 
 # F5 settings.  Keep RUN_ID unchanged to resume an interrupted run.  Use a new
 # value if the sampling config or generated CSV is intentionally changed.
-RUN_ID = "remote-real-smoke-004"
+RUN_ID = "remote-real-smoke-006"
 DEVICE_IDS = ("convallariag5", "coconutg2")
 CANDIDATE_COUNT = 4
 REQUIRE_CONFIRMATION = True
+SMOKE_GLOBAL_RELATIVE_RANGE = (-0.02, 0.02)
 
 SAMPLING_CONFIG = (
     REPOSITORY_ROOT / "configs" / "optimization" / "antenna_sampling.json"
@@ -78,18 +80,51 @@ def prepare_input(
     if candidate_count < 1:
         raise ValueError("candidate_count must be at least 1")
 
-    config = antenna_sampler.load_sampling_config(config_path)
-    plan = antenna_sampler.resolve_sampling_plan(config, n_samples=candidate_count)
-    result = antenna_sampler.generate_samples(plan)
-    invalid = result.frame.loc[~result.frame["geometry_valid"]]
-    if not invalid.empty:
-        details = "; ".join(
-            f"sample {row.sample_id}: {row.geometry_error}"
-            for row in invalid.itertuples()
+    config = copy.deepcopy(antenna_sampler.load_sampling_config(config_path))
+    smoke_lower, smoke_upper = SMOKE_GLOBAL_RELATIVE_RANGE
+    smoke_range = {
+        "mode": "relative",
+        "lower": smoke_lower,
+        "upper": smoke_upper,
+        "reference": "nominal",
+    }
+    for name, parameter_config in config["sampling"]["parameters"].items():
+        nominal = float(
+            parameter_config.get(
+                "value",
+                antenna_sampler.PARAMETER_REGISTRY[name].code_default,
+            )
         )
+        if nominal == 0.0:
+            parameter_config["range"] = {
+                "mode": "absolute",
+                "min": 0.0,
+                "max": smoke_upper,
+            }
+        else:
+            parameter_config["range"] = dict(smoke_range)
+    draw_count = candidate_count
+    result: antenna_sampler.SamplingResult | None = None
+    for _attempt in range(9):
+        plan = antenna_sampler.resolve_sampling_plan(config, n_samples=draw_count)
+        drawn = antenna_sampler.generate_samples(plan)
+        valid_frame = drawn.frame.loc[drawn.frame["geometry_valid"]].head(
+            candidate_count
+        )
+        if len(valid_frame) >= candidate_count:
+            valid_frame = valid_frame.copy().reset_index(drop=True)
+            valid_frame["sample_id"] = range(candidate_count)
+            result = antenna_sampler.SamplingResult(
+                frame=valid_frame,
+                plan=replace(plan, n_samples=candidate_count),
+            )
+            plan = result.plan
+            break
+        draw_count *= 2
+    if result is None:
         raise RuntimeError(
-            f"{len(invalid)}/{candidate_count} generated candidates are invalid; "
-            f"no real solve was started. {details}"
+            f"could not find {candidate_count} valid candidates after checking "
+            f"{draw_count // 2} Sobol points; no real solve was started"
         )
 
     csv_path, resolved_path = antenna_sampler.save_sampling_result(
@@ -106,12 +141,9 @@ def prepare_input(
         )
     for row in persisted_rows:
         parameters = antenna_sampler.parameters_from_csv_row(row)
-        cst_build_msabp_geometry.build_polygon_specs(
-            parameters=parameters,
+        cst_build_msabp_geometry.build_sampled_polygon_specs(
+            parameters,
             coordinate_quantum_mm=plan.geometry_policy.coordinate_quantum_mm,
-            allow_disconnected_conductor=(
-                plan.geometry_policy.allow_disconnected_conductor
-            ),
         )
 
     return PreparedSmokeInput(

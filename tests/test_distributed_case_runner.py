@@ -35,19 +35,17 @@ def _default_csv_row(sample_id: int = 0) -> dict[str, str]:
 
 def test_parameters_from_csv_row_is_strongly_typed() -> None:
     row = _default_csv_row()
-    row["rectangle_length_mm"] = "68.25"
-    row["inner_slot_order2_reserved_up_enabled"] = "False"
-    row["inner_slot_order2_reserved_down1_enabled"] = "1"
+    row["SLOT_MAIN_LENGTH"] = "48.25"
+    row["BRANCH_DOWN_1_K2"] = "0.75"
 
     parameters = antenna_sampler.parameters_from_csv_row(row)
 
-    assert parameters.rectangle_length_mm == pytest.approx(68.25)
-    assert parameters.inner_slot_order2_reserved_up_enabled is False
-    assert parameters.inner_slot_order2_reserved_down1_enabled is True
-    assert isinstance(parameters.rectangle_length_mm, float)
+    assert parameters.SLOT_MAIN_LENGTH == pytest.approx(48.25)
+    assert parameters.BRANCH_DOWN_1_K2 == pytest.approx(0.75)
+    assert isinstance(parameters.SLOT_MAIN_LENGTH, float)
 
-    row["inner_slot_order2_reserved_up_enabled"] = "not-a-boolean"
-    with pytest.raises(ValueError, match="must be a boolean"):
+    row["BRANCH_DOWN_1_K2"] = "1.1"
+    with pytest.raises(ValueError, match=r"inside \[0, 1\]"):
         antenna_sampler.parameters_from_csv_row(row)
 
 
@@ -84,7 +82,7 @@ def test_builder_reuses_existing_project_without_opening_or_saving(
     assert report.final_conductor_component_count == 1
 
 
-def test_existing_project_solver_order_and_s11_export(
+def test_existing_project_solver_order_and_standard_1d_exports(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -97,7 +95,11 @@ def test_existing_project_solver_order_and_s11_export(
             events.append("solver")
 
         def get_tree_items(self, timeout=None) -> tuple[str, ...]:
-            return (cst_run_and_export_s11.S11_TREE_PATH,)
+            return (
+                cst_run_and_export_s11.S11_TREE_PATH,
+                cst_run_and_export_s11.RAD_EFF_TREE_PATH,
+                cst_run_and_export_s11.TOT_EFF_TREE_PATH,
+            )
 
     class FakeProject:
         model3d = FakeModel3D()
@@ -106,11 +108,21 @@ def test_existing_project_solver_order_and_s11_export(
         if label == "clear previous simulation results":
             events.append("clear")
             return
-        if label == "export case S11":
-            events.append("s11")
-            match = re.search(r'\.FileName "([^"]+)"', vba)
-            assert match is not None
-            Path(match.group(1)).write_text("1.0 -12.0\n2.0 -8.0\n", encoding="utf-8")
+        if label == "export case 1D results":
+            events.append("1d-results")
+            for tree_path in (
+                cst_run_and_export_s11.S11_TREE_PATH,
+                cst_run_and_export_s11.RAD_EFF_TREE_PATH,
+                cst_run_and_export_s11.TOT_EFF_TREE_PATH,
+            ):
+                assert f'SelectTreeItem("{tree_path}")' in vba
+            matches = re.findall(r'\.FileName "([^"]+)"', vba)
+            assert len(matches) == 3
+            for exported_path in matches:
+                Path(exported_path).write_text(
+                    "1.0 -12.0\n2.0 -8.0\n",
+                    encoding="utf-8",
+                )
 
     monkeypatch.setattr(cst_run_and_export_s11, "execute_project_vba", fake_execute)
     monkeypatch.setattr(
@@ -125,8 +137,10 @@ def test_existing_project_solver_order_and_s11_export(
     )
 
     assert returned == output_path.resolve()
-    assert events == ["clear", "solver", "s11"]
+    assert events == ["clear", "solver", "1d-results"]
     assert output_path.stat().st_size > 0
+    assert output_path.with_name("Rad_Eff.csv").stat().st_size > 0
+    assert output_path.with_name("Tot_Eff.csv").stat().st_size > 0
 
 
 def test_recorded_setup_vba_preserves_port_and_monitor_history() -> None:
@@ -220,7 +234,7 @@ def test_case_runner_dry_run_never_connects_to_cst(
     assert result.farfield_source_path is None
     assert manifest["status"] == "dry_run"
     assert manifest["artifacts"] == {}
-    assert manifest["parameters"]["inner_slot_order2_reserved_up_enabled"] is False
+    assert manifest["parameters"]["BRANCH_DOWN_1_K3"] == pytest.approx(0.0)
     assert stages == ["prechecking_geometry", "writing_manifest", "completed"]
 
 
@@ -239,10 +253,9 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         events.append("build")
         assert kwargs["project"] is fake_project
         assert kwargs["save_project"] is False
-        _, report = cst_build_msabp_geometry.build_polygon_specs(
-            parameters=kwargs["parameters"],
+        _, report = cst_build_msabp_geometry.build_sampled_polygon_specs(
+            kwargs["parameters"],
             coordinate_quantum_mm=kwargs["coordinate_quantum_mm"],
-            allow_disconnected_conductor=kwargs["allow_disconnected_conductor"],
         )
         return report
 
@@ -268,12 +281,18 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         assert clear_results is False
         for stage, event in (
             ("solving", "solver"),
-            ("exporting_s11", "s11"),
+            ("exporting_1d_results", "1d-results"),
         ):
             stage_callback(stage)
             events.append(event)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"1.0 -12.0\n2.0 -8.0\n")
+        output_path.with_name(case_runner.RAD_EFF_FILENAME).write_bytes(
+            b"1.0 -2.0\n2.0 -1.5\n"
+        )
+        output_path.with_name(case_runner.TOT_EFF_FILENAME).write_bytes(
+            b"1.0 -3.0\n2.0 -2.5\n"
+        )
         farfield_source.parent.mkdir(parents=True, exist_ok=True)
         farfield_source.write_bytes(b"farfield-source-data")
         return output_path
@@ -307,13 +326,21 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         stage_callback=stages.append,
     )
 
-    assert events == ["clear", "build", "restore", "solver", "s11"]
+    assert events == ["clear", "build", "restore", "solver", "1d-results"]
     assert result.farfield_source_path is not None
     assert result.farfield_source_path.read_bytes() == b"farfield-source-data"
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["status"] == "completed"
     assert manifest["artifacts"]["s11"]["sha256"] == case_runner.sha256_file(
         result.s11_path
+    )
+    assert result.rad_eff_path is not None
+    assert result.tot_eff_path is not None
+    assert manifest["artifacts"]["rad_eff"]["sha256"] == case_runner.sha256_file(
+        result.rad_eff_path
+    )
+    assert manifest["artifacts"]["tot_eff"]["sha256"] == case_runner.sha256_file(
+        result.tot_eff_path
     )
     assert manifest["artifacts"]["farfield_source"][
         "sha256"
@@ -324,7 +351,7 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         "building_geometry",
         "restoring_simulation_setup",
         "solving",
-        "exporting_s11",
+        "exporting_1d_results",
         "copying_farfield_source",
         "writing_manifest",
         "completed",

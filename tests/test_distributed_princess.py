@@ -116,13 +116,25 @@ def _write_case_archive(
     include_farfield: bool = True,
 ) -> tuple[str, str]:
     s11 = b"1.0 -12.0\n2.0 -8.0\n"
+    rad_eff = b"1.0 -2.0\n2.0 -1.5\n"
+    tot_eff = b"1.0 -3.0\n2.0 -2.5\n"
     farfield = b"farfield-source"
     artifacts: dict[str, dict[str, Any]] = {
         "s11": {
             "path": case_runner.S11_FILENAME,
             "size_bytes": len(s11),
             "sha256": "0" * 64 if corrupt_s11_hash else _sha256_bytes(s11),
-        }
+        },
+        "rad_eff": {
+            "path": case_runner.RAD_EFF_FILENAME,
+            "size_bytes": len(rad_eff),
+            "sha256": _sha256_bytes(rad_eff),
+        },
+        "tot_eff": {
+            "path": case_runner.TOT_EFF_FILENAME,
+            "size_bytes": len(tot_eff),
+            "sha256": _sha256_bytes(tot_eff),
+        },
     }
     if include_farfield:
         artifacts["farfield_source"] = {
@@ -148,6 +160,8 @@ def _write_case_archive(
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as handle:
         handle.writestr(case_runner.MANIFEST_FILENAME, manifest_bytes)
         handle.writestr(case_runner.S11_FILENAME, s11)
+        handle.writestr(case_runner.RAD_EFF_FILENAME, rad_eff)
+        handle.writestr(case_runner.TOT_EFF_FILENAME, tot_eff)
         if include_farfield:
             handle.writestr(case_runner.FARFIELD_SOURCE_FILENAME, farfield)
     return _sha256_bytes(path.read_bytes()), _sha256_bytes(manifest_bytes)

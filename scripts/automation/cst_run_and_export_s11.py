@@ -36,6 +36,10 @@ except ImportError:
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_PATH = REPOSITORY_ROOT / "results" / "raw" / "baseline" / "S11.csv"
 S11_TREE_PATH = r"1D Results\S-Parameters\S1,1"
+RAD_EFF_TREE_PATH = r"1D Results\Efficiencies\Rad. Efficiency [1]"
+TOT_EFF_TREE_PATH = r"1D Results\Efficiencies\Tot. Efficiency [1]"
+RAD_EFF_FILENAME = "Rad_Eff.csv"
+TOT_EFF_FILENAME = "Tot_Eff.csv"
 DEFAULT_COMMAND_TIMEOUT = 60.0
 RECORDED_PORT_NUMBER = 1
 RECORDED_PORT_TREE_ITEM = rf"Ports\port{RECORDED_PORT_NUMBER}"
@@ -318,21 +322,50 @@ def clear_results_on_project(
     )
 
 
+def build_export_1d_results_vba(
+    exports: Sequence[tuple[str, Path]],
+) -> str:
+    """Build one VBA command that exports multiple CST 1D result curves."""
+
+    if not exports:
+        raise ValueError("at least one 1D result export is required")
+    lines = ["Sub Main()"]
+    for index, (tree_path, output_path) in enumerate(exports):
+        tree_path_vba = _vba_string(tree_path)
+        output_path_vba = _vba_string(output_path.resolve())
+        error_message = _vba_string(f"result tree item does not exist: {tree_path}")
+        lines.extend(
+            (
+                f'    If Not SelectTreeItem("{tree_path_vba}") Then',
+                f'        Err.Raise vbObjectError + {1300 + index}, , '
+                f'"{error_message}"',
+                "    End If",
+                "    With ASCIIExport",
+                "        .Reset",
+                f'        .FileName "{output_path_vba}"',
+                "        .Execute",
+                "    End With",
+            )
+        )
+    lines.append("End Sub")
+    return "\n".join(lines)
+
+
 def build_export_s11_vba(output_path: Path) -> str:
-    tree_path = _vba_string(S11_TREE_PATH)
-    output = _vba_string(output_path.resolve())
-    return f'''\
-Sub Main()
-    If Not SelectTreeItem("{tree_path}") Then
-        Err.Raise vbObjectError + 1300, , "S11 result tree item does not exist"
-    End If
-    With ASCIIExport
-        .Reset
-        .FileName "{output}"
-        .Execute
-    End With
-End Sub
-'''
+    """Build the legacy-compatible single S11 export command."""
+
+    return build_export_1d_results_vba(((S11_TREE_PATH, output_path),))
+
+
+def one_d_result_output_paths(s11_output_path: Path) -> dict[str, Path]:
+    """Derive all per-case 1D output paths from the requested S11 path."""
+
+    s11_path = s11_output_path.expanduser().resolve()
+    return {
+        "s11": s11_path,
+        "rad_eff": s11_path.with_name(RAD_EFF_FILENAME),
+        "tot_eff": s11_path.with_name(TOT_EFF_FILENAME),
+    }
 
 
 def plot_s11_ascii(input_path: Path, output_path: Path) -> S11CurveSummary:
@@ -488,6 +521,71 @@ def restore_recorded_simulation_setup(
     return prerequisites
 
 
+def export_1d_results_from_project(
+    project: Any,
+    s11_output_path: Path,
+    *,
+    overwrite: bool = False,
+    command_timeout: float | None = DEFAULT_COMMAND_TIMEOUT,
+    save_project: bool = False,
+    export_label: str = "export 1D results",
+) -> dict[str, Path]:
+    """Export S11, radiation efficiency, and total efficiency curves."""
+
+    output_paths = one_d_result_output_paths(s11_output_path)
+    collisions = [path for path in output_paths.values() if path.exists()]
+    if collisions and not overwrite:
+        names = ", ".join(path.name for path in collisions)
+        raise FileExistsError(
+            f"1D result outputs already exist: {names}; enable overwrite to replace them"
+        )
+
+    tree_items = set(
+        str(item) for item in project.model3d.get_tree_items(timeout=command_timeout)
+    )
+    result_tree_paths = {
+        "s11": S11_TREE_PATH,
+        "rad_eff": RAD_EFF_TREE_PATH,
+        "tot_eff": TOT_EFF_TREE_PATH,
+    }
+    missing_results = [
+        tree_path
+        for tree_path in result_tree_paths.values()
+        if tree_path not in tree_items
+    ]
+    if missing_results:
+        raise RuntimeError(
+            "solver completed without 1D results: " + ", ".join(missing_results)
+        )
+
+    for output_path in output_paths.values():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    execute_project_vba(
+        project,
+        export_label,
+        build_export_1d_results_vba(
+            tuple(
+                (result_tree_paths[name], output_paths[name])
+                for name in ("s11", "rad_eff", "tot_eff")
+            )
+        ),
+        timeout=command_timeout,
+    )
+    if save_project:
+        execute_save_project(project, timeout=command_timeout)
+
+    for name, output_path in output_paths.items():
+        if not output_path.is_file() or output_path.stat().st_size == 0:
+            raise RuntimeError(
+                f"CST reported {name} export success but output is missing: "
+                f"{output_path}"
+            )
+        print(
+            f"{name} exported: {output_path} ({output_path.stat().st_size} bytes)"
+        )
+    return output_paths
+
+
 def export_s11_from_project(
     project: Any,
     output_path: Path,
@@ -495,36 +593,18 @@ def export_s11_from_project(
     overwrite: bool = False,
     command_timeout: float | None = DEFAULT_COMMAND_TIMEOUT,
     save_project: bool = False,
-    export_label: str = "export S11",
+    export_label: str = "export 1D results",
 ) -> Path:
-    """Export the current S11 result from an already connected project."""
+    """Export all standard 1D curves and return the S11 path for compatibility."""
 
-    output_path = output_path.expanduser().resolve()
-    if output_path.exists() and not overwrite:
-        raise FileExistsError(
-            f"S11 output already exists: {output_path}; enable overwrite to replace it"
-        )
-
-    tree_items = set(
-        str(item) for item in project.model3d.get_tree_items(timeout=command_timeout)
-    )
-    if S11_TREE_PATH not in tree_items:
-        raise RuntimeError(f"solver completed without result: {S11_TREE_PATH}")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    execute_project_vba(
+    return export_1d_results_from_project(
         project,
-        export_label,
-        build_export_s11_vba(output_path),
-        timeout=command_timeout,
-    )
-    if save_project:
-        execute_save_project(project, timeout=command_timeout)
-
-    if not output_path.is_file() or output_path.stat().st_size == 0:
-        raise RuntimeError(f"CST reported export success but output is missing: {output_path}")
-    print(f"S11 exported: {output_path} ({output_path.stat().st_size} bytes)")
-    return output_path
+        output_path,
+        overwrite=overwrite,
+        command_timeout=command_timeout,
+        save_project=save_project,
+        export_label=export_label,
+    )["s11"]
 
 
 def solve_and_export_s11_on_project(
@@ -537,12 +617,18 @@ def solve_and_export_s11_on_project(
     clear_results: bool = True,
     stage_callback: Callable[[str], None] | None = None,
 ) -> Path:
-    """Optionally clear, solve synchronously, and export S11."""
+    """Optionally clear, solve synchronously, and export standard 1D curves."""
 
     output_path = output_path.expanduser().resolve()
-    if output_path.exists() and not overwrite:
+    collisions = [
+        path
+        for path in one_d_result_output_paths(output_path).values()
+        if path.exists()
+    ]
+    if collisions and not overwrite:
+        names = ", ".join(path.name for path in collisions)
         raise FileExistsError(
-            f"S11 output already exists: {output_path}; enable overwrite to replace it"
+            f"1D result outputs already exist: {names}; enable overwrite to replace them"
         )
 
     if clear_results:
@@ -555,14 +641,14 @@ def solve_and_export_s11_on_project(
     project.model3d.run_solver(timeout=None)
     print("[CST] solver completed", flush=True)
     if stage_callback is not None:
-        stage_callback("exporting_s11")
+        stage_callback("exporting_1d_results")
     return export_s11_from_project(
         project,
         output_path,
         overwrite=overwrite,
         command_timeout=command_timeout,
         save_project=save_project,
-        export_label="export case S11",
+        export_label="export case 1D results",
     )
 
 
@@ -597,9 +683,15 @@ def run_and_export_s11(
         print("check-only: no geometry, results, solver, or files were changed")
         return None
 
-    if output_path.exists() and not overwrite:
+    collisions = [
+        path
+        for path in one_d_result_output_paths(output_path).values()
+        if path.exists()
+    ]
+    if collisions and not overwrite:
+        names = ", ".join(path.name for path in collisions)
         raise FileExistsError(
-            f"S11 output already exists: {output_path}; use --overwrite to replace it"
+            f"1D result outputs already exist: {names}; use --overwrite to replace them"
         )
 
     if resume_running:
@@ -619,7 +711,7 @@ def run_and_export_s11(
             overwrite=overwrite,
             command_timeout=command_timeout,
             save_project=True,
-            export_label="export baseline S11",
+            export_label="export baseline 1D results",
         )
 
     clear_results_on_project(project, timeout=command_timeout)
@@ -650,7 +742,7 @@ def run_and_export_s11(
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Rebuild MSA-BP, run CST once, and export S11."
+        description="Rebuild MSA-BP, run CST once, and export standard 1D results."
     )
     parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT_PATH)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)

@@ -268,8 +268,8 @@ Princess 主机上的持久化状态：
 - `simulations/runs/<run-id>/princess.sqlite3`：任务、租约、尝试、错误和 Maid 状态；
 - `simulations/runs/<run-id>/princess_runtime.json`：本次运行元数据和 API token；
 - `simulations/runs/<run-id>/incoming/`：上传暂存与完成回执；
-- `results/raw/<run-id>/case_####/`：验收后的 `S11.csv`、
-  `Farfield Source [1].ffs` 和 `manifest.json`。dry-run 结果只有 manifest。
+- `results/raw/<run-id>/case_####/`：验收后的 `S11.csv`、`Rad_Eff.csv`、
+  `Tot_Eff.csv`、`Farfield Source [1].ffs` 和 `manifest.json`。dry-run 结果只有 manifest。
 
 每台远端 Maid 的工作区根目录为
 `simulations/runs/<run-id>/workers/<device-id>/`：

@@ -21,10 +21,9 @@ def test_prepare_input_revalidates_four_persisted_rows(tmp_path: Path) -> None:
     assert all(row["geometry_valid"].lower() == "true" for row in rows)
     for row in rows:
         parameters = antenna_sampler.parameters_from_csv_row(row)
-        cst_build_msabp_geometry.build_polygon_specs(
-            parameters=parameters,
+        cst_build_msabp_geometry.build_sampled_polygon_specs(
+            parameters,
             coordinate_quantum_mm=prepared.coordinate_quantum_mm,
-            allow_disconnected_conductor=prepared.allow_disconnected_conductor,
         )
 
 

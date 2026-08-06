@@ -8,6 +8,7 @@ the complete colour-layered geometry preview.
 from __future__ import annotations
 
 import argparse
+import logging
 import math
 import os
 import sys
@@ -15,7 +16,7 @@ from dataclasses import dataclass, fields, replace
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from pprint import pprint
-from typing import Sequence
+from typing import Mapping, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -50,9 +51,20 @@ REFLECTOR_CUTOUT_WIDTH_ADJUSTMENT_FIXED_MM = 2.0
 REFLECTOR_CUTOUT_DEPTH_FIXED_MM = 0.5
 SMA_SOLDER_KEEPOUT_RIGHT_X_FIXED_MM = 4.76
 SMA_SOLDER_KEEPOUT_UPPER_Y_FIXED_MM = 4.5
+LOWER_OUTER_SLOT_CPW_CLEARANCE_ABS_X_FIXED_MM = 10.0
+DOWNWARD_INNER_BRANCH_CPW_CLEARANCE_FIXED_MM = 5.0
+INNER_SLOT_ORDER1_LENGTH_RATIO_MIN = 0.2
+INNER_SLOT_ORDER1_LENGTH_RATIO_MAX = 0.9
+OUTER_SLOT_ORDER1_HEIGHT_RATIO_MIN = 0.1
+OUTER_SLOT_ORDER1_HEIGHT_RATIO_MAX = 0.4
+OUTER_SLOT_CENTERLINE_PROTECTION_B_FIXED_MM = 10.0
+UPPER_OUTER_SLOT_ORDER2_LOWER_Y_MIN_FRACTION = 0.6
+UPPER_OUTER_SLOT_ORDER2_LOWER_Y_MAX_FRACTION = 1.0
 
 COORDINATE_QUANTUM_MM = 0.01
 GEOMETRY_TOLERANCE_MM2 = 1e-12
+GEOMETRY_DISTANCE_TOLERANCE_MM = 1e-9
+CPW_FEEDING_INTERFERENCE_ERROR = "这个参数会干扰CPW馈电"
 
 Point2D = tuple[float, float]
 
@@ -72,30 +84,37 @@ class AntennaOutlineParameters:
 
     # 常量组 2：外开槽-上部-1阶
     upper_outer_slot_order1_width_mm: float = 10.0
-    upper_outer_slot_order1_bottom_y_mm: float = 25.7
+    upper_outer_slot_order1_height_ratio: float = (39.8 - 25.7) / 39.8
 
     # 常量组 3：外开槽-上部-2阶
-    upper_outer_slot_order2_lower_y_mm: float = 27.2
-    upper_outer_slot_order2_inward_extension_mm: float = 7.0
+    upper_outer_slot_order2_lower_y_ratio: float = (
+        27.2 / 39.8 - UPPER_OUTER_SLOT_ORDER2_LOWER_Y_MIN_FRACTION
+    ) / (
+        UPPER_OUTER_SLOT_ORDER2_LOWER_Y_MAX_FRACTION
+        - UPPER_OUTER_SLOT_ORDER2_LOWER_Y_MIN_FRACTION
+    )
+    upper_outer_slot_order2_length_ratio: float = 12.0 / (67.0 / 2.0 - 10.0 - 10.0)
 
     # 常量组 4：外开槽-下部-1阶
     lower_outer_slot_order1_opposite_corner_x_mm: float = 22.2
-    lower_outer_slot_order1_opposite_corner_y_mm: float = 12.0
+    lower_outer_slot_order1_height_ratio: float = 12.0 / 39.8
 
     # 常量组 5：外开槽-下部-2阶
-    lower_outer_slot_order2_branch1_inner_x_mm: float = 17.2
-    lower_outer_slot_order2_branch1_lower_y_mm: float = 1.5
-    lower_outer_slot_order2_branch1_upper_y_mm: float = 10.5
-    lower_outer_slot_order2_branch2_inner_x_mm: float = 12.2
-    lower_outer_slot_order2_branch2_lower_y_mm: float = 4.0
-    lower_outer_slot_order2_branch2_upper_y_mm: float = 8.0
+    lower_outer_slot_order2_branch1_length_ratio: float = 10.65 / (
+        67.0 / 2.0 - (67.0 / 2.0 - 22.2) - 10.0
+    )
+    lower_outer_slot_order2_branch1_width_ratio: float = 9.0 / 12.0
+    lower_outer_slot_order2_branch1_offset_ratio: float = 0.0
+    lower_outer_slot_order2_branch2_length_ratio: float = 1.0
+    lower_outer_slot_order2_branch2_width_ratio: float = 4.0 / 12.0
+    lower_outer_slot_order2_branch2_offset_ratio: float = 0.0
 
     # 常量组 6：外开槽-Y轴镜像
     outer_slot_symmetry_axis_x_mm: float = 0.0
 
     # 常量组 7：内开槽-1阶
     inner_slot_order1_left_x_mm: float = 0.0
-    inner_slot_order1_right_x_mm: float = 26.5
+    inner_slot_order1_length_ratio: float = 26.5 / (67.0 / 2.0)
     inner_slot_order1_lower_y_mm: float = 20.1
     inner_slot_order1_upper_y_mm: float = 22.1
 
@@ -157,21 +176,43 @@ class AntennaOutlineParameters:
 
     @property
     def upper_outer_slot_order1_depth_mm(self) -> float:
-        return self.rectangle_width_mm - self.upper_outer_slot_order1_bottom_y_mm
+        return self.rectangle_width_mm * self.upper_outer_slot_order1_height_ratio
+
+    @property
+    def upper_outer_slot_order1_bottom_y_mm(self) -> float:
+        return self.rectangle_width_mm - self.upper_outer_slot_order1_depth_mm
 
     @property
     def upper_outer_slot_order2_buffer_mm(self) -> float:
         return (self.rectangle_width_mm - self.upper_outer_slot_order2_lower_y_mm) / 2.0
 
     @property
+    def upper_outer_slot_order2_lower_y_mm(self) -> float:
+        lower_fraction = UPPER_OUTER_SLOT_ORDER2_LOWER_Y_MIN_FRACTION
+        fraction_span = (
+            UPPER_OUTER_SLOT_ORDER2_LOWER_Y_MAX_FRACTION - lower_fraction
+        )
+        return self.rectangle_width_mm * (
+            lower_fraction + fraction_span * self.upper_outer_slot_order2_lower_y_ratio
+        )
+
+    @property
     def upper_outer_slot_order2_center_y_mm(self) -> float:
         return self.rectangle_width_mm - self.upper_outer_slot_order2_buffer_mm
 
     @property
+    def upper_outer_slot_order2_max_length_mm(self) -> float:
+        return (
+            self.rectangle_length_mm / 2.0
+            - self.upper_outer_slot_order1_width_mm
+            - OUTER_SLOT_CENTERLINE_PROTECTION_B_FIXED_MM
+        )
+
+    @property
     def upper_outer_slot_order2_line_length_mm(self) -> float:
         return (
-            self.upper_outer_slot_order1_width_mm / 2.0
-            + self.upper_outer_slot_order2_inward_extension_mm
+            self.upper_outer_slot_order2_length_ratio
+            * self.upper_outer_slot_order2_max_length_mm
         )
 
     @property
@@ -183,7 +224,11 @@ class AntennaOutlineParameters:
 
     @property
     def lower_outer_slot_order1_height_mm(self) -> float:
-        return self.lower_outer_slot_order1_opposite_corner_y_mm
+        return self.rectangle_width_mm * self.lower_outer_slot_order1_height_ratio
+
+    @property
+    def lower_outer_slot_order1_opposite_corner_y_mm(self) -> float:
+        return self.lower_outer_slot_order1_height_mm
 
     @property
     def lower_outer_slot_order1_buffer_mm(self) -> float:
@@ -195,44 +240,112 @@ class AntennaOutlineParameters:
 
     @property
     def lower_outer_slot_order2_branch1_center_y_mm(self) -> float:
+        available_offset_mm = (
+            self.lower_outer_slot_order1_height_mm
+            - self.lower_outer_slot_order2_branch1_width_mm
+        )
         return (
-            self.lower_outer_slot_order2_branch1_lower_y_mm
-            + self.lower_outer_slot_order2_branch1_upper_y_mm
-        ) / 2.0
+            self.lower_outer_slot_order1_height_mm / 2.0
+            + self.lower_outer_slot_order2_branch1_offset_ratio
+            * available_offset_mm
+        )
+
+    @property
+    def lower_outer_slot_order2_branch1_width_mm(self) -> float:
+        return (
+            self.lower_outer_slot_order2_branch1_width_ratio
+            * self.lower_outer_slot_order1_height_mm
+        )
+
+    @property
+    def lower_outer_slot_order2_branch1_lower_y_mm(self) -> float:
+        return (
+            self.lower_outer_slot_order2_branch1_center_y_mm
+            - self.lower_outer_slot_order2_branch1_width_mm / 2.0
+        )
+
+    @property
+    def lower_outer_slot_order2_branch1_upper_y_mm(self) -> float:
+        return (
+            self.lower_outer_slot_order2_branch1_center_y_mm
+            + self.lower_outer_slot_order2_branch1_width_mm / 2.0
+        )
 
     @property
     def lower_outer_slot_order2_branch1_buffer_mm(self) -> float:
+        return self.lower_outer_slot_order2_branch1_width_mm / 2.0
+
+    @property
+    def lower_outer_slot_order2_max_length_mm(self) -> float:
         return (
-            self.lower_outer_slot_order2_branch1_upper_y_mm
-            - self.lower_outer_slot_order2_branch1_lower_y_mm
-        ) / 2.0
+            self.rectangle_length_mm / 2.0
+            - self.lower_outer_slot_order1_width_mm
+            - OUTER_SLOT_CENTERLINE_PROTECTION_B_FIXED_MM
+        )
 
     @property
     def lower_outer_slot_order2_branch1_line_length_mm(self) -> float:
         return (
+            self.lower_outer_slot_order2_branch1_length_ratio
+            * self.lower_outer_slot_order2_max_length_mm
+        )
+
+    @property
+    def lower_outer_slot_order2_branch1_inner_x_mm(self) -> float:
+        return (
             self.lower_outer_slot_order1_center_x_mm
-            - self.lower_outer_slot_order2_branch1_inner_x_mm
+            - self.lower_outer_slot_order2_branch1_line_length_mm
         )
 
     @property
     def lower_outer_slot_order2_branch2_center_y_mm(self) -> float:
+        available_offset_mm = (
+            self.lower_outer_slot_order1_height_mm
+            - self.lower_outer_slot_order2_branch2_width_mm
+        )
         return (
-            self.lower_outer_slot_order2_branch2_lower_y_mm
-            + self.lower_outer_slot_order2_branch2_upper_y_mm
-        ) / 2.0
+            self.lower_outer_slot_order1_height_mm / 2.0
+            + self.lower_outer_slot_order2_branch2_offset_ratio
+            * available_offset_mm
+        )
+
+    @property
+    def lower_outer_slot_order2_branch2_width_mm(self) -> float:
+        return (
+            self.lower_outer_slot_order2_branch2_width_ratio
+            * self.lower_outer_slot_order1_height_mm
+        )
+
+    @property
+    def lower_outer_slot_order2_branch2_lower_y_mm(self) -> float:
+        return (
+            self.lower_outer_slot_order2_branch2_center_y_mm
+            - self.lower_outer_slot_order2_branch2_width_mm / 2.0
+        )
+
+    @property
+    def lower_outer_slot_order2_branch2_upper_y_mm(self) -> float:
+        return (
+            self.lower_outer_slot_order2_branch2_center_y_mm
+            + self.lower_outer_slot_order2_branch2_width_mm / 2.0
+        )
 
     @property
     def lower_outer_slot_order2_branch2_buffer_mm(self) -> float:
-        return (
-            self.lower_outer_slot_order2_branch2_upper_y_mm
-            - self.lower_outer_slot_order2_branch2_lower_y_mm
-        ) / 2.0
+        return self.lower_outer_slot_order2_branch2_width_mm / 2.0
 
     @property
     def lower_outer_slot_order2_branch2_line_length_mm(self) -> float:
         return (
+            self.lower_outer_slot_order2_branch2_length_ratio
+            * self.lower_outer_slot_order2_max_length_mm
+        )
+
+    @property
+    def lower_outer_slot_order2_branch2_inner_x_mm(self) -> float:
+        return (
             self.lower_outer_slot_order1_center_x_mm
-            - self.lower_outer_slot_order2_branch2_inner_x_mm
+            - self.lower_outer_slot_order2_branch2_line_length_mm
         )
 
     @property
@@ -244,6 +357,16 @@ class AntennaOutlineParameters:
     @property
     def inner_slot_order1_line_length_mm(self) -> float:
         return self.inner_slot_order1_right_x_mm - self.inner_slot_order1_left_x_mm
+
+    @property
+    def inner_slot_order1_right_x_mm(self) -> float:
+        available_positive_half_span_mm = (
+            self.rectangle_length_mm / 2.0 - self.inner_slot_order1_left_x_mm
+        )
+        return (
+            self.inner_slot_order1_left_x_mm
+            + self.inner_slot_order1_length_ratio * available_positive_half_span_mm
+        )
 
     @property
     def inner_slot_order1_buffer_mm(self) -> float:
@@ -308,14 +431,267 @@ class AntennaOutlineParameters:
 
 
 DEFAULT_ANTENNA_PARAMETERS = AntennaOutlineParameters()
+BRANCH_FIELDS: dict[str, Mapping[str, object]] = {
+    "reserved_up_1": {
+        "enabled": "inner_slot_order2_reserved_up_enabled",
+        "parameters": (
+            "inner_slot_order2_reserved_up_anchor_t",
+            "inner_slot_order2_reserved_up_length_mm",
+            "inner_slot_order2_reserved_up_width_mm",
+        ),
+    },
+    "reserved_down_1": {
+        "enabled": "inner_slot_order2_reserved_down1_enabled",
+        "parameters": (
+            "inner_slot_order2_reserved_down1_anchor_t",
+            "inner_slot_order2_reserved_down1_length_mm",
+            "inner_slot_order2_reserved_down1_width_mm",
+        ),
+    },
+    "reserved_down_2": {
+        "enabled": "inner_slot_order2_reserved_down2_enabled",
+        "parameters": (
+            "inner_slot_order2_reserved_down2_anchor_t",
+            "inner_slot_order2_reserved_down2_length_mm",
+            "inner_slot_order2_reserved_down2_width_mm",
+        ),
+    },
+}
+PARAMETER_GROUPS: dict[str, tuple[str, ...]] = {
+    "outline": (
+        "rectangle_length_mm",
+        "rectangle_width_mm",
+    ),
+    "outer.upper.order1": (
+        "upper_outer_slot_order1_width_mm",
+        "upper_outer_slot_order1_height_ratio",
+    ),
+    "outer.upper.order2": (
+        "upper_outer_slot_order2_lower_y_ratio",
+        "upper_outer_slot_order2_length_ratio",
+    ),
+    "outer.lower.order1": (
+        "lower_outer_slot_order1_opposite_corner_x_mm",
+        "lower_outer_slot_order1_height_ratio",
+    ),
+    "outer.lower.order2.branch1": (
+        "lower_outer_slot_order2_branch1_length_ratio",
+        "lower_outer_slot_order2_branch1_width_ratio",
+        "lower_outer_slot_order2_branch1_offset_ratio",
+    ),
+    "outer.lower.order2.branch2": (
+        "lower_outer_slot_order2_branch2_length_ratio",
+        "lower_outer_slot_order2_branch2_width_ratio",
+        "lower_outer_slot_order2_branch2_offset_ratio",
+    ),
+    "outer.symmetry": ("outer_slot_symmetry_axis_x_mm",),
+    "inner.order1": (
+        "inner_slot_order1_left_x_mm",
+        "inner_slot_order1_length_ratio",
+        "inner_slot_order1_lower_y_mm",
+        "inner_slot_order1_upper_y_mm",
+    ),
+    "inner.order2.primary": (
+        "inner_slot_order2_cap_left_x_mm",
+        "inner_slot_order2_cap_right_x_mm",
+        "inner_slot_order2_cap_y_mm",
+    ),
+    "inner.order2.reserved.up.control": (
+        "inner_slot_order2_reserved_up_enabled",
+    ),
+    "inner.order2.reserved.up.position": (
+        "inner_slot_order2_reserved_up_anchor_t",
+    ),
+    "inner.order2.reserved.up.size": (
+        "inner_slot_order2_reserved_up_length_mm",
+        "inner_slot_order2_reserved_up_width_mm",
+    ),
+    "inner.order2.reserved.down1.control": (
+        "inner_slot_order2_reserved_down1_enabled",
+    ),
+    "inner.order2.reserved.down1.position": (
+        "inner_slot_order2_reserved_down1_anchor_t",
+    ),
+    "inner.order2.reserved.down1.size": (
+        "inner_slot_order2_reserved_down1_length_mm",
+        "inner_slot_order2_reserved_down1_width_mm",
+    ),
+    "inner.order2.reserved.down2.control": (
+        "inner_slot_order2_reserved_down2_enabled",
+    ),
+    "inner.order2.reserved.down2.position": (
+        "inner_slot_order2_reserved_down2_anchor_t",
+    ),
+    "inner.order2.reserved.down2.size": (
+        "inner_slot_order2_reserved_down2_length_mm",
+        "inner_slot_order2_reserved_down2_width_mm",
+    ),
+    "cpw.guide.fixed": (
+        "cpw_guide_p1_x_mm",
+        "cpw_guide_p1_y_mm",
+        "cpw_guide_p2_x_mm",
+        "cpw_guide_p2_y_mm",
+        "cpw_guide_p3_y_mm",
+        "cpw_guide_p7_x_mm",
+    ),
+    "cpw.guide.design": (
+        "cpw_guide_p3_p4_x_mm",
+        "cpw_guide_p4_y_mm",
+        "cpw_guide_p5_p6_x_mm",
+    ),
+    "cpw.slot.fixed": (
+        "cpw_slot_p0_x_mm",
+        "cpw_slot_p0_y_mm",
+        "cpw_slot_p1_y_mm",
+        "cpw_slot_p5_x_mm",
+    ),
+    "cpw.slot.design": (
+        "cpw_slot_p1_p2_x_mm",
+        "cpw_slot_p2_y_mm",
+        "cpw_slot_p3_p4_x_mm",
+    ),
+    "cpw.matching_stub1.fixed": (
+        "cpw_matching_stub1_cap_x_mm",
+        "cpw_matching_stub1_lower_y_mm",
+        "cpw_matching_stub1_upper_y_mm",
+    ),
+    "cpw.matching_stub2.fixed": (
+        "cpw_matching_stub2_cap_x_mm",
+        "cpw_matching_stub2_lower_y_mm",
+        "cpw_matching_stub2_upper_y_mm",
+    ),
+    "reflector.clearance.fixed": (
+        "reflector_connector_board_thickness_mm",
+        "reflector_cutout_width_adjustment_mm",
+        "reflector_cutout_depth_mm",
+    ),
+}
+STRUCTURAL_PARAMETER_NAMES = {
+    str(details["enabled"]) for details in BRANCH_FIELDS.values()
+}
+FIXED_BY_DEFAULT_PARAMETER_NAMES = {
+    "outer_slot_symmetry_axis_x_mm",
+    "inner_slot_order1_left_x_mm",
+    *PARAMETER_GROUPS["cpw.guide.fixed"],
+    *PARAMETER_GROUPS["cpw.slot.fixed"],
+    *PARAMETER_GROUPS["cpw.matching_stub1.fixed"],
+    *PARAMETER_GROUPS["cpw.matching_stub2.fixed"],
+    *PARAMETER_GROUPS["reflector.clearance.fixed"],
+}
+ACTIVE_BRANCH_BY_PARAMETER = {
+    str(parameter_name): branch_name
+    for branch_name, details in BRANCH_FIELDS.items()
+    for parameter_name in details["parameters"]  # type: ignore[union-attr]
+}
 INDEPENDENT_PARAMETER_NAMES = tuple(
     item.name for item in fields(AntennaOutlineParameters)
 )
 SAMPLABLE_PARAMETER_NAMES = tuple(
     name
     for name in INDEPENDENT_PARAMETER_NAMES
-    if not isinstance(getattr(DEFAULT_ANTENNA_PARAMETERS, name), bool)
+    if name not in STRUCTURAL_PARAMETER_NAMES
+    and name not in FIXED_BY_DEFAULT_PARAMETER_NAMES
 )
+DEFAULT_EXPLORER_LOG_PATH = (
+    Path(__file__).resolve().parents[2] / "logs" / "antenna_outline_explorer.log"
+)
+
+
+@dataclass(frozen=True)
+class ExplorerSliderSpec:
+    """Translate one GUI slider position into an antenna parameter value."""
+
+    parameter_name: str
+    mode: str
+    minimum: float
+    maximum: float
+    resolution: float
+    reference_value: float
+
+    def parameter_value(self, slider_value: float) -> float:
+        if self.mode == "ratio":
+            return float(slider_value)
+        return self.reference_value * float(slider_value) / 100.0
+
+    def slider_value(self, parameter_value: float) -> float:
+        if self.mode == "ratio":
+            value = float(parameter_value)
+        else:
+            value = 100.0 * float(parameter_value) / self.reference_value
+        return min(self.maximum, max(self.minimum, value))
+
+
+def explorer_slider_spec(
+    parameter_name: str,
+    reference_parameters: AntennaOutlineParameters | None = None,
+) -> ExplorerSliderSpec:
+    """Return the direct-ratio or 0--200 percent slider definition."""
+
+    reference_parameters = _resolve_parameters(reference_parameters)
+    if parameter_name not in SAMPLABLE_PARAMETER_NAMES:
+        raise ValueError(f"parameter is not explorer-adjustable: {parameter_name}")
+    reference_value = float(getattr(reference_parameters, parameter_name))
+    if parameter_name.endswith(("_anchor_t", "_ratio")):
+        if parameter_name == "inner_slot_order1_length_ratio":
+            minimum = INNER_SLOT_ORDER1_LENGTH_RATIO_MIN
+            maximum = INNER_SLOT_ORDER1_LENGTH_RATIO_MAX
+        elif parameter_name in {
+            "upper_outer_slot_order1_height_ratio",
+            "lower_outer_slot_order1_height_ratio",
+        }:
+            minimum = OUTER_SLOT_ORDER1_HEIGHT_RATIO_MIN
+            maximum = OUTER_SLOT_ORDER1_HEIGHT_RATIO_MAX
+        elif parameter_name.endswith("_offset_ratio"):
+            minimum, maximum = -1.0, 1.0
+        else:
+            minimum, maximum = 0.0, 1.0
+        return ExplorerSliderSpec(
+            parameter_name=parameter_name,
+            mode="ratio",
+            minimum=minimum,
+            maximum=maximum,
+            resolution=0.01,
+            reference_value=reference_value,
+        )
+    if reference_value <= 0.0:
+        raise ValueError(
+            f"percent slider requires a positive reference value: {parameter_name}"
+        )
+    return ExplorerSliderSpec(
+        parameter_name=parameter_name,
+        mode="percent",
+        minimum=0.0,
+        maximum=200.0,
+        resolution=1.0,
+        reference_value=reference_value,
+    )
+
+
+def explorer_parameter_groups(
+    reference_parameters: AntennaOutlineParameters | None = None,
+) -> dict[str, tuple[str, ...]]:
+    """Return active, non-FIXED numerical groups available in the F5 explorer."""
+
+    reference_parameters = _resolve_parameters(reference_parameters)
+    result: dict[str, tuple[str, ...]] = {}
+    for group_name, parameter_names in PARAMETER_GROUPS.items():
+        available: list[str] = []
+        for parameter_name in parameter_names:
+            if parameter_name not in SAMPLABLE_PARAMETER_NAMES:
+                continue
+            branch_name = ACTIVE_BRANCH_BY_PARAMETER.get(parameter_name)
+            if branch_name is not None:
+                enabled_name = str(BRANCH_FIELDS[branch_name]["enabled"])
+                if not bool(getattr(reference_parameters, enabled_name)):
+                    continue
+            try:
+                explorer_slider_spec(parameter_name, reference_parameters)
+            except ValueError:
+                continue
+            available.append(parameter_name)
+        if available:
+            result[group_name] = tuple(available)
+    return result
 
 
 @dataclass(frozen=True)
@@ -551,6 +927,14 @@ def _resolve_parameters(
     parameters: AntennaOutlineParameters | None,
 ) -> AntennaOutlineParameters:
     return DEFAULT_ANTENNA_PARAMETERS if parameters is None else parameters
+
+
+def _reject_lower_outer_slot_cpw_interference(slot: Polygon) -> None:
+    """Keep every right-side lower outer slot outside the central CPW corridor."""
+
+    minimum_x_mm = float(slot.bounds[0])
+    if minimum_x_mm < LOWER_OUTER_SLOT_CPW_CLEARANCE_ABS_X_FIXED_MM:
+        raise ValueError(CPW_FEEDING_INTERFERENCE_ERROR)
 
 
 def generate_rectangle(
@@ -1035,6 +1419,7 @@ def build_step_2_3_outline(
     ) = build_step_2_2_outline(rectangle, parameters)
     lower_centerline = generate_lower_outer_slot_order1_centerline(parameters)
     lower_slot = expand_lower_outer_slot_order1(lower_centerline, parameters)
+    _reject_lower_outer_slot_cpw_interference(lower_slot)
     if not rectangle.covers(lower_slot):
         raise ValueError("expanded lower order-1 slot lies outside the rectangle")
 
@@ -1263,6 +1648,7 @@ def build_step_2_4_outline(
         lower_order2_centerlines, parameters
     )
     for index, slot in enumerate(lower_order2_slots, start=1):
+        _reject_lower_outer_slot_cpw_interference(slot)
         if not rectangle.covers(slot):
             raise ValueError(
                 f"expanded lower order-2 branch {index} lies outside the rectangle"
@@ -2586,6 +2972,22 @@ def build_step_3_4_geometry(
         )
     slot_with_stubs = orient(slot_with_stubs, sign=1.0)
 
+    reservations = generate_inner_slot_order2_reservations(parameters)
+    _, active_reserved_polygons = build_active_reserved_inner_slot_branches(
+        reservations
+    )
+    for reservation, branch in zip(
+        (item for item in reservations if item.is_active),
+        active_reserved_polygons,
+        strict=True,
+    ):
+        if (
+            reservation.growth_direction == (0.0, -1.0)
+            and branch.distance(slot_with_stubs) + GEOMETRY_DISTANCE_TOLERANCE_MM
+            < DOWNWARD_INNER_BRANCH_CPW_CLEARANCE_FIXED_MM
+        ):
+            raise ValueError(CPW_FEEDING_INTERFERENCE_ERROR)
+
     right_combined_slot = combined_inner_slot.union(slot_with_stubs)
     if not isinstance(right_combined_slot, Polygon):
         raise TypeError(
@@ -2667,7 +3069,6 @@ def build_step_3_4_geometry(
     )
     expected_symmetric_slot_area_mm2 = 2.0 * expected_right_combined_area_mm2
     expected_symmetric_guide_area_mm2 = 2.0 * cpw_guide.area
-    reservations = generate_inner_slot_order2_reservations(parameters)
     active_reserved_count = sum(item.is_active for item in reservations)
     slot_assembly_is_y_axis_symmetric = symmetric_slot_geometry.equals(
         mirror_about_y_axis(symmetric_slot_geometry, parameters)
@@ -4127,6 +4528,8 @@ def plot_complete_antenna(
     *,
     save_path: Path | None = None,
     show: bool = True,
+    figure: plt.Figure | None = None,
+    axes: plt.Axes | None = None,
 ) -> tuple[plt.Figure, plt.Axes]:
     """Plot every active construction family in the completed planar antenna."""
 
@@ -4201,7 +4604,10 @@ def plot_complete_antenna(
                 zorder=zorder,
             )
 
-    figure, axes = plt.subplots(figsize=(12.5, 8.2))
+    if (figure is None) != (axes is None):
+        raise ValueError("figure and axes must be supplied together")
+    if figure is None or axes is None:
+        figure, axes = plt.subplots(figsize=(12.5, 8.2))
     rectangle_coordinates = np.asarray(rectangle.exterior.coords, dtype=float)
     reflector_coordinates = np.asarray(
         generate_reflector_outline_points(parameters),
@@ -4392,6 +4798,282 @@ def plot_complete_antenna(
     return figure, axes
 
 
+def validate_explorer_parameters(parameters: AntennaOutlineParameters) -> None:
+    """Run the quantized curve checks used before accepting a GUI adjustment."""
+
+    generate_complete_antenna_point_lists(parameters)
+    quantize_and_validate_closed_polygon_points(
+        generate_rectangle(parameters),
+        curve_name="substrate outline",
+    )
+    quantize_and_validate_closed_polygon_points(
+        generate_reflector_outline_points(parameters),
+        curve_name="reflector outline",
+    )
+
+
+def _build_explorer_logger(log_path: Path) -> logging.Logger:
+    resolved_path = log_path.expanduser().resolve()
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger(
+        f"msabp.antenna_outline.explorer.{abs(hash(resolved_path))}"
+    )
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    if not logger.handlers:
+        handler = logging.FileHandler(resolved_path, encoding="utf-8")
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+        )
+        logger.addHandler(handler)
+    return logger
+
+
+def launch_parameter_explorer(
+    parameters: AntennaOutlineParameters | None = None,
+    *,
+    log_path: Path = DEFAULT_EXPLORER_LOG_PATH,
+) -> AntennaOutlineParameters:
+    """Launch the IDE-only group/parameter slider explorer."""
+
+    import tkinter as tk
+    from tkinter import ttk
+
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.figure import Figure
+
+    reference_parameters = _resolve_parameters(parameters)
+    parameter_groups = explorer_parameter_groups(reference_parameters)
+    if not parameter_groups:
+        raise RuntimeError("antenna explorer has no active adjustable parameters")
+    logger = _build_explorer_logger(Path(log_path))
+
+    root = tk.Tk()
+    root.title("MSA-BP antenna parameter explorer")
+    root.geometry("1420x940")
+    root.minsize(1080, 720)
+    root.columnconfigure(0, weight=1)
+    root.rowconfigure(1, weight=1)
+
+    controls = ttk.Frame(root, padding=(10, 8, 10, 6))
+    controls.grid(row=0, column=0, sticky="ew")
+    controls.columnconfigure(1, weight=1)
+    controls.columnconfigure(3, weight=2)
+    plot_frame = ttk.Frame(root, padding=(8, 0, 8, 8))
+    plot_frame.grid(row=1, column=0, sticky="nsew")
+
+    first_group = next(iter(parameter_groups))
+    group_variable = tk.StringVar(value=first_group)
+    parameter_variable = tk.StringVar(value=parameter_groups[first_group][0])
+    value_variable = tk.StringVar()
+    status_variable = tk.StringVar(value="Ready")
+
+    ttk.Label(controls, text="Group").grid(row=0, column=0, sticky="w", padx=(0, 5))
+    group_selector = ttk.Combobox(
+        controls,
+        textvariable=group_variable,
+        values=tuple(parameter_groups),
+        state="readonly",
+        width=34,
+    )
+    group_selector.grid(row=0, column=1, sticky="ew", padx=(0, 12))
+    ttk.Label(controls, text="Variable").grid(
+        row=0,
+        column=2,
+        sticky="w",
+        padx=(0, 5),
+    )
+    parameter_selector = ttk.Combobox(
+        controls,
+        textvariable=parameter_variable,
+        values=parameter_groups[first_group],
+        state="readonly",
+        width=54,
+    )
+    parameter_selector.grid(row=0, column=3, sticky="ew")
+
+    value_label = ttk.Label(controls, textvariable=value_variable)
+    value_label.grid(row=1, column=0, columnspan=4, sticky="w", pady=(8, 0))
+    slider = tk.Scale(
+        controls,
+        orient=tk.HORIZONTAL,
+        showvalue=False,
+        highlightthickness=0,
+        length=900,
+    )
+    slider.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(1, 0))
+    status_label = ttk.Label(controls, textvariable=status_variable)
+    status_label.grid(row=3, column=0, columnspan=4, sticky="w", pady=(4, 0))
+    ttk.Label(
+        controls,
+        text=f"Invalid attempts: {Path(log_path).expanduser().resolve()}",
+    ).grid(row=4, column=0, columnspan=4, sticky="w", pady=(2, 0))
+
+    current_parameters = reference_parameters
+    current_canvas: FigureCanvasTkAgg | None = None
+    current_figure: Figure | None = None
+    pending_callback: str | None = None
+    suppress_slider_callback = False
+    last_logged_error: tuple[str, str, float, str] | None = None
+
+    def slider_spec() -> ExplorerSliderSpec:
+        return explorer_slider_spec(parameter_variable.get(), reference_parameters)
+
+    def update_value_label(raw_slider_value: float) -> float:
+        spec = slider_spec()
+        parameter_value = spec.parameter_value(raw_slider_value)
+        if spec.mode == "ratio":
+            value_variable.set(
+                f"{spec.parameter_name}: t={parameter_value:.2f}  "
+                "(direct relative position, range 0..1)"
+            )
+        else:
+            value_variable.set(
+                f"{spec.parameter_name}: {raw_slider_value:.0f}% × "
+                f"{spec.reference_value:g} mm = {parameter_value:g} mm"
+            )
+        return parameter_value
+
+    def build_candidate_figure(
+        candidate: AntennaOutlineParameters,
+    ) -> Figure:
+        validate_explorer_parameters(candidate)
+        figure = Figure(figsize=(12.5, 8.2), dpi=100)
+        axes = figure.add_subplot(111)
+        plot_complete_antenna(
+            candidate,
+            show=False,
+            figure=figure,
+            axes=axes,
+        )
+        return figure
+
+    def install_figure(figure: Figure) -> None:
+        nonlocal current_canvas, current_figure
+        canvas = FigureCanvasTkAgg(figure, master=plot_frame)
+        canvas.draw()
+        widget = canvas.get_tk_widget()
+        if current_canvas is not None:
+            current_canvas.get_tk_widget().destroy()
+        if current_figure is not None:
+            current_figure.clear()
+        widget.pack(fill=tk.BOTH, expand=True)
+        current_canvas = canvas
+        current_figure = figure
+
+    def apply_slider_value(
+        group_name: str,
+        parameter_name: str,
+        raw_slider_value: float,
+    ) -> None:
+        nonlocal current_parameters, last_logged_error, pending_callback
+        pending_callback = None
+        if (
+            group_name != group_variable.get()
+            or parameter_name != parameter_variable.get()
+        ):
+            return
+        spec = explorer_slider_spec(parameter_name, reference_parameters)
+        attempted_value = spec.parameter_value(raw_slider_value)
+        candidate = replace(current_parameters, **{parameter_name: attempted_value})
+        try:
+            figure = build_candidate_figure(candidate)
+            install_figure(figure)
+        except Exception as exc:
+            message = (
+                "这组变量画不出来 | "
+                f"group={group_name} | variable={parameter_name} | "
+                f"slider={raw_slider_value:g} | attempted={attempted_value:g} | "
+                f"error={type(exc).__name__}: {exc}"
+            )
+            error_key = (group_name, parameter_name, attempted_value, str(exc))
+            if error_key != last_logged_error:
+                logger.error(message)
+                print(f"[antenna explorer] {message}", file=sys.stderr)
+                last_logged_error = error_key
+            status_variable.set(message)
+            status_label.configure(foreground="#b91c1c")
+            return
+        current_parameters = candidate
+        last_logged_error = None
+        status_variable.set(
+            f"Accepted | group={group_name} | variable={parameter_name} | "
+            f"value={attempted_value:g}"
+        )
+        status_label.configure(foreground="#166534")
+
+    def on_slider_change(raw_value: str) -> None:
+        nonlocal pending_callback
+        if suppress_slider_callback:
+            return
+        raw_slider_value = float(raw_value)
+        update_value_label(raw_slider_value)
+        if pending_callback is not None:
+            root.after_cancel(pending_callback)
+        pending_callback = root.after(
+            140,
+            apply_slider_value,
+            group_variable.get(),
+            parameter_variable.get(),
+            raw_slider_value,
+        )
+
+    slider.configure(command=on_slider_change)
+
+    def refresh_slider() -> None:
+        nonlocal suppress_slider_callback, pending_callback
+        if pending_callback is not None:
+            root.after_cancel(pending_callback)
+            pending_callback = None
+        spec = slider_spec()
+        current_value = float(getattr(current_parameters, spec.parameter_name))
+        suppress_slider_callback = True
+        try:
+            slider.configure(
+                from_=spec.minimum,
+                to=spec.maximum,
+                resolution=spec.resolution,
+            )
+            position = spec.slider_value(current_value)
+            slider.set(position)
+            update_value_label(position)
+        finally:
+            suppress_slider_callback = False
+
+    def on_group_selected(_event: object | None = None) -> None:
+        parameter_names = parameter_groups[group_variable.get()]
+        parameter_selector.configure(values=parameter_names)
+        parameter_variable.set(parameter_names[0])
+        refresh_slider()
+
+    def on_parameter_selected(_event: object | None = None) -> None:
+        refresh_slider()
+
+    group_selector.bind("<<ComboboxSelected>>", on_group_selected)
+    parameter_selector.bind("<<ComboboxSelected>>", on_parameter_selected)
+
+    try:
+        install_figure(build_candidate_figure(current_parameters))
+    except Exception as exc:
+        logger.exception("initial antenna explorer geometry cannot be drawn")
+        root.destroy()
+        raise RuntimeError("initial antenna explorer geometry cannot be drawn") from exc
+    refresh_slider()
+
+    def close_explorer() -> None:
+        nonlocal pending_callback
+        if pending_callback is not None:
+            root.after_cancel(pending_callback)
+            pending_callback = None
+        if current_figure is not None:
+            current_figure.clear()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", close_explorer)
+    root.mainloop()
+    return current_parameters
+
+
 def _running_from_ide_f5() -> bool:
     """Detect common IDE run/debug sessions without treating a terminal as F5."""
 
@@ -4463,10 +5145,9 @@ def main(
         cpw_slot_p2_y_mm=args.cpw_slot_p2_y,
         cpw_slot_p3_p4_x_mm=args.cpw_slot_p3_p4_x,
     )
-    point_lists = generate_complete_antenna_point_lists(parameters)
     if show_ide_plot:
-        plot_complete_antenna(parameters, show=True)
-    return point_lists
+        parameters = launch_parameter_explorer(parameters)
+    return generate_complete_antenna_point_lists(parameters)
 
 
 if __name__ == "__main__":

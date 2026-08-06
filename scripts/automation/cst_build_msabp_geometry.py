@@ -1,4 +1,4 @@
-"""Build the current parameterized MSA-BP antenna in a CST project.
+"""Build the current MSA-BP antenna in a CST project.
 
 The substrate, conductor, and reflector source polygons are kept in CST's
 Curves tree.  The conductor and reflector tool solids are combined as::
@@ -27,6 +27,8 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from scripts.geometry import antenna_closed_curves  # noqa: E402
 from scripts.geometry import antenna_outline  # noqa: E402
+from scripts.geometry import antenna_polygon_export  # noqa: E402
+from scripts.geometry import shapely_antenna_model  # noqa: E402
 
 try:
     from .cst_generate_polygen import (
@@ -47,6 +49,7 @@ except ImportError:
 
 
 DEFAULT_PROJECT_PATH = REPOSITORY_ROOT / "simulations" / "models" / "MSA-BP.cst"
+DEFAULT_POLYGON_JSON_PATH = antenna_polygon_export.DEFAULT_EXPORT_PATH
 DEFAULT_COMPONENT_NAME = "component1"
 DEFAULT_COPPER_MATERIAL_NAME = "Copper (annealed)"
 DEFAULT_TOOL_MATERIAL_NAME = "Vacuum"
@@ -136,13 +139,256 @@ def _curve_item_ref(curve_name: str, polygon_name: str) -> str:
 
 
 def _polygon_signed_area(points: Sequence[Point2D]) -> float:
+    if len(points) < 3:
+        return 0.0
+    following = (*points[1:], points[0])
     return 0.5 * sum(
         x_current * y_next - x_next * y_current
         for (x_current, y_current), (x_next, y_next) in zip(
-            points[:-1],
-            points[1:],
+            points,
+            following,
             strict=True,
         )
+    )
+
+
+def _polygon_area(points: Sequence[Point2D]) -> float:
+    return abs(_polygon_signed_area(points))
+
+
+def _build_direct_polygon_specs(
+    exported: antenna_polygon_export.AntennaPolygonExport,
+    *,
+    copper_thickness_mm: float = DEFAULT_COPPER_THICKNESS_MM,
+    substrate_thickness_mm: float = DEFAULT_SUBSTRATE_THICKNESS_MM,
+    reflector_connector_board_thickness_mm: float = (
+        DEFAULT_REFLECTOR_CONNECTOR_BOARD_THICKNESS_MM
+    ),
+    reflector_cutout_width_adjustment_mm: float = (
+        DEFAULT_REFLECTOR_CUTOUT_WIDTH_ADJUSTMENT_MM
+    ),
+    reflector_cutout_depth_mm: float = DEFAULT_REFLECTOR_CUTOUT_DEPTH_MM,
+) -> tuple[tuple[CstPolygonSpec, ...], GeometryBuildReport]:
+    """Build CST specs directly from the three exported vertex arrays.
+
+    No Shapely reconstruction or geometric legality check is performed here.
+    The exported point order and floating-point values are passed directly to
+    the CST Polygon writer, which adds only the closing edge.
+    """
+
+    copper_thickness_mm = float(copper_thickness_mm)
+    substrate_thickness_mm = float(substrate_thickness_mm)
+    reflector_connector_board_thickness_mm = float(
+        reflector_connector_board_thickness_mm
+    )
+    reflector_cutout_width_adjustment_mm = float(
+        reflector_cutout_width_adjustment_mm
+    )
+    reflector_cutout_depth_mm = float(reflector_cutout_depth_mm)
+    if not math.isfinite(copper_thickness_mm) or copper_thickness_mm <= 0.0:
+        raise ValueError("copper thickness must be a finite positive number")
+    if not math.isfinite(substrate_thickness_mm) or substrate_thickness_mm >= 0.0:
+        raise ValueError("substrate thickness must be finite and negative")
+    reflector_values = (
+        reflector_connector_board_thickness_mm,
+        reflector_cutout_width_adjustment_mm,
+        reflector_cutout_depth_mm,
+    )
+    if not all(math.isfinite(value) for value in reflector_values):
+        raise ValueError("reflector clearance dimensions must be finite")
+
+    patch_points = exported.points(antenna_polygon_export.PATCH_KEY)
+    slot_points = exported.points(antenna_polygon_export.SLOT_KEY)
+    guide_points = exported.points(antenna_polygon_export.FEED_PIN_KEY)
+    substrate_points = exported.substrate_rectangle_points()
+    reflector_points = list(substrate_points)
+    substrate_width_mm, substrate_height_mm = exported.substrate_size_mm
+    substrate_min_y = exported.substrate_bounds_mm[1]
+    reflector_cutout_half_width_mm = (
+        substrate_width_mm / 2.0
+        - reflector_connector_board_thickness_mm
+        + reflector_cutout_width_adjustment_mm
+    )
+    reflector_cutout_points = [
+        (-reflector_cutout_half_width_mm, substrate_min_y),
+        (reflector_cutout_half_width_mm, substrate_min_y),
+        (
+            reflector_cutout_half_width_mm,
+            substrate_min_y + reflector_cutout_depth_mm,
+        ),
+        (
+            -reflector_cutout_half_width_mm,
+            substrate_min_y + reflector_cutout_depth_mm,
+        ),
+        (-reflector_cutout_half_width_mm, substrate_min_y),
+    ]
+    point_lists = (
+        substrate_points,
+        patch_points,
+        slot_points,
+        guide_points,
+        reflector_points,
+        reflector_cutout_points,
+    )
+    specs = (
+        CstPolygonSpec(
+            "substrate",
+            SUBSTRATE_CURVE_NAME,
+            SUBSTRATE_POLYGON_NAME,
+            SUBSTRATE_SOLID_NAME,
+            DEFAULT_SUBSTRATE_MATERIAL_NAME,
+            substrate_thickness_mm,
+            substrate_points,
+        ),
+        CstPolygonSpec(
+            "Patch",
+            PATCH_CURVE_NAME,
+            PATCH_POLYGON_NAME,
+            PATCH_SOLID_NAME,
+            DEFAULT_COPPER_MATERIAL_NAME,
+            copper_thickness_mm,
+            patch_points,
+        ),
+        CstPolygonSpec(
+            "Slot",
+            SLOT_CURVE_NAME,
+            SLOT_POLYGON_NAME,
+            SLOT_SOLID_NAME,
+            DEFAULT_TOOL_MATERIAL_NAME,
+            copper_thickness_mm,
+            slot_points,
+        ),
+        CstPolygonSpec(
+            "CPW_Feed_Pin",
+            GUIDE_CURVE_NAME,
+            GUIDE_POLYGON_NAME,
+            GUIDE_SOLID_NAME,
+            DEFAULT_COPPER_MATERIAL_NAME,
+            copper_thickness_mm,
+            guide_points,
+        ),
+        CstPolygonSpec(
+            "reflector",
+            REFLECTOR_CURVE_NAME,
+            REFLECTOR_POLYGON_NAME,
+            REFLECTOR_SOLID_NAME,
+            DEFAULT_COPPER_MATERIAL_NAME,
+            -copper_thickness_mm,
+            reflector_points,
+        ),
+        CstPolygonSpec(
+            "reflector connector clearance",
+            REFLECTOR_CUTOUT_CURVE_NAME,
+            REFLECTOR_CUTOUT_POLYGON_NAME,
+            REFLECTOR_CUTOUT_SOLID_NAME,
+            DEFAULT_TOOL_MATERIAL_NAME,
+            -copper_thickness_mm,
+            reflector_cutout_points,
+        ),
+    )
+
+    substrate_area_mm2 = substrate_width_mm * substrate_height_mm
+    patch_area_mm2 = _polygon_area(patch_points)
+    slot_area_mm2 = _polygon_area(slot_points)
+    guide_area_mm2 = _polygon_area(guide_points)
+    final_conductor_area_mm2 = patch_area_mm2 - slot_area_mm2 + guide_area_mm2
+    cutout_area_mm2 = 2.0 * reflector_cutout_half_width_mm * reflector_cutout_depth_mm
+    reflector_area_mm2 = substrate_area_mm2 - cutout_area_mm2
+    report = GeometryBuildReport(
+        point_counts=tuple(len(points) for points in point_lists),
+        substrate_material_name=DEFAULT_SUBSTRATE_MATERIAL_NAME,
+        substrate_relative_permittivity=DEFAULT_SUBSTRATE_RELATIVE_PERMITTIVITY,
+        substrate_area_mm2=substrate_area_mm2,
+        substrate_volume_mm3=substrate_area_mm2 * abs(substrate_thickness_mm),
+        patch_area_mm2=patch_area_mm2,
+        slot_area_mm2=slot_area_mm2,
+        guide_area_mm2=guide_area_mm2,
+        final_conductor_area_mm2=final_conductor_area_mm2,
+        final_conductor_volume_mm3=(
+            final_conductor_area_mm2 * copper_thickness_mm
+        ),
+        final_conductor_component_count=1,
+        coordinate_quantum_mm=exported.quantize_step_mm,
+        reflector_cutout_width_mm=2.0 * reflector_cutout_half_width_mm,
+        reflector_cutout_depth_mm=reflector_cutout_depth_mm,
+        reflector_area_mm2=reflector_area_mm2,
+        reflector_volume_mm3=reflector_area_mm2 * copper_thickness_mm,
+        reflector_z_min_mm=substrate_thickness_mm - copper_thickness_mm,
+        reflector_z_max_mm=substrate_thickness_mm,
+    )
+    return specs, report
+
+
+def build_exported_polygon_specs(
+    polygon_json_path: str | Path = DEFAULT_POLYGON_JSON_PATH,
+    copper_thickness_mm: float = DEFAULT_COPPER_THICKNESS_MM,
+    substrate_thickness_mm: float = DEFAULT_SUBSTRATE_THICKNESS_MM,
+    reflector_connector_board_thickness_mm: float = (
+        DEFAULT_REFLECTOR_CONNECTOR_BOARD_THICKNESS_MM
+    ),
+    reflector_cutout_width_adjustment_mm: float = (
+        DEFAULT_REFLECTOR_CUTOUT_WIDTH_ADJUSTMENT_MM
+    ),
+    reflector_cutout_depth_mm: float = DEFAULT_REFLECTOR_CUTOUT_DEPTH_MM,
+) -> tuple[tuple[CstPolygonSpec, ...], GeometryBuildReport]:
+    """Load the established JSON exchange file and create direct CST specs."""
+
+    exported = antenna_polygon_export.load_antenna_polygon_export(polygon_json_path)
+    return _build_direct_polygon_specs(
+        exported,
+        copper_thickness_mm=copper_thickness_mm,
+        substrate_thickness_mm=substrate_thickness_mm,
+        reflector_connector_board_thickness_mm=(
+            reflector_connector_board_thickness_mm
+        ),
+        reflector_cutout_width_adjustment_mm=(
+            reflector_cutout_width_adjustment_mm
+        ),
+        reflector_cutout_depth_mm=reflector_cutout_depth_mm,
+    )
+
+
+def build_sampled_polygon_specs(
+    parameters: shapely_antenna_model.ShapelyAntennaParameters,
+    copper_thickness_mm: float = DEFAULT_COPPER_THICKNESS_MM,
+    substrate_thickness_mm: float = DEFAULT_SUBSTRATE_THICKNESS_MM,
+    reflector_connector_board_thickness_mm: float = (
+        DEFAULT_REFLECTOR_CONNECTOR_BOARD_THICKNESS_MM
+    ),
+    reflector_cutout_width_adjustment_mm: float = (
+        DEFAULT_REFLECTOR_CUTOUT_WIDTH_ADJUSTMENT_MM
+    ),
+    reflector_cutout_depth_mm: float = DEFAULT_REFLECTOR_CUTOUT_DEPTH_MM,
+    coordinate_quantum_mm: float = shapely_antenna_model.QUANTIZE_STEP_MM,
+) -> tuple[tuple[CstPolygonSpec, ...], GeometryBuildReport]:
+    """Build one sampled 23-variable design without a shared JSON file."""
+
+    payload = shapely_antenna_model.polygon_export_payload(
+        parameters,
+        quantize_step_mm=coordinate_quantum_mm,
+    )
+    exported = antenna_polygon_export.AntennaPolygonExport(
+        source_path=Path("<sampled-in-memory>"),
+        quantize_step_mm=float(payload["meta"]["quantize_step"]),
+        vertices={
+            name: tuple(
+                (float(point[0]), float(point[1]))
+                for point in payload["vertices"][name]
+            )
+            for name in antenna_polygon_export.REQUIRED_VERTEX_KEYS
+        },
+    )
+    return _build_direct_polygon_specs(
+        exported,
+        copper_thickness_mm=copper_thickness_mm,
+        substrate_thickness_mm=substrate_thickness_mm,
+        reflector_connector_board_thickness_mm=(
+            reflector_connector_board_thickness_mm
+        ),
+        reflector_cutout_width_adjustment_mm=(
+            reflector_cutout_width_adjustment_mm
+        ),
+        reflector_cutout_depth_mm=reflector_cutout_depth_mm,
     )
 
 
@@ -708,7 +954,12 @@ def _build_live_vba_sequence(
 def build_msabp_in_cst(
     project_path: Path = DEFAULT_PROJECT_PATH,
     component_name: str = DEFAULT_COMPONENT_NAME,
-    parameters: antenna_outline.AntennaOutlineParameters | None = None,
+    parameters: (
+        antenna_outline.AntennaOutlineParameters
+        | shapely_antenna_model.ShapelyAntennaParameters
+        | None
+    ) = None,
+    polygon_json_path: str | Path = DEFAULT_POLYGON_JSON_PATH,
     thickness_mm: float = DEFAULT_COPPER_THICKNESS_MM,
     substrate_thickness_mm: float = DEFAULT_SUBSTRATE_THICKNESS_MM,
     reflector_connector_board_thickness_mm: float | None = None,
@@ -729,20 +980,68 @@ def build_msabp_in_cst(
     reopening or persisting every intermediate geometry.
     """
 
-    specs, report = build_polygon_specs(
-        parameters=parameters,
-        copper_thickness_mm=thickness_mm,
-        substrate_thickness_mm=substrate_thickness_mm,
-        reflector_connector_board_thickness_mm=(
-            reflector_connector_board_thickness_mm
-        ),
-        reflector_cutout_width_adjustment_mm=(
-            reflector_cutout_width_adjustment_mm
-        ),
-        reflector_cutout_depth_mm=reflector_cutout_depth_mm,
-        coordinate_quantum_mm=coordinate_quantum_mm,
-        allow_disconnected_conductor=allow_disconnected_conductor,
-    )
+    if parameters is None:
+        specs, report = build_exported_polygon_specs(
+            polygon_json_path=polygon_json_path,
+            copper_thickness_mm=thickness_mm,
+            substrate_thickness_mm=substrate_thickness_mm,
+            reflector_connector_board_thickness_mm=(
+                DEFAULT_REFLECTOR_CONNECTOR_BOARD_THICKNESS_MM
+                if reflector_connector_board_thickness_mm is None
+                else reflector_connector_board_thickness_mm
+            ),
+            reflector_cutout_width_adjustment_mm=(
+                DEFAULT_REFLECTOR_CUTOUT_WIDTH_ADJUSTMENT_MM
+                if reflector_cutout_width_adjustment_mm is None
+                else reflector_cutout_width_adjustment_mm
+            ),
+            reflector_cutout_depth_mm=(
+                DEFAULT_REFLECTOR_CUTOUT_DEPTH_MM
+                if reflector_cutout_depth_mm is None
+                else reflector_cutout_depth_mm
+            ),
+        )
+    elif isinstance(parameters, shapely_antenna_model.ShapelyAntennaParameters):
+        specs, report = build_sampled_polygon_specs(
+            parameters,
+            copper_thickness_mm=thickness_mm,
+            substrate_thickness_mm=substrate_thickness_mm,
+            reflector_connector_board_thickness_mm=(
+                DEFAULT_REFLECTOR_CONNECTOR_BOARD_THICKNESS_MM
+                if reflector_connector_board_thickness_mm is None
+                else reflector_connector_board_thickness_mm
+            ),
+            reflector_cutout_width_adjustment_mm=(
+                DEFAULT_REFLECTOR_CUTOUT_WIDTH_ADJUSTMENT_MM
+                if reflector_cutout_width_adjustment_mm is None
+                else reflector_cutout_width_adjustment_mm
+            ),
+            reflector_cutout_depth_mm=(
+                DEFAULT_REFLECTOR_CUTOUT_DEPTH_MM
+                if reflector_cutout_depth_mm is None
+                else reflector_cutout_depth_mm
+            ),
+            coordinate_quantum_mm=coordinate_quantum_mm,
+        )
+    else:
+        # Transitional compatibility: distributed DoE rows still describe the
+        # former parameterized geometry.  Keeping that explicit path prevents
+        # those parameters from being silently ignored until the new producer
+        # itself accepts sampled inputs.
+        specs, report = build_polygon_specs(
+            parameters=parameters,
+            copper_thickness_mm=thickness_mm,
+            substrate_thickness_mm=substrate_thickness_mm,
+            reflector_connector_board_thickness_mm=(
+                reflector_connector_board_thickness_mm
+            ),
+            reflector_cutout_width_adjustment_mm=(
+                reflector_cutout_width_adjustment_mm
+            ),
+            reflector_cutout_depth_mm=reflector_cutout_depth_mm,
+            coordinate_quantum_mm=coordinate_quantum_mm,
+            allow_disconnected_conductor=allow_disconnected_conductor,
+        )
 
     commands = _build_live_vba_sequence(
         specs,
@@ -826,6 +1125,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="CST component name.",
     )
     parser.add_argument(
+        "--polygon-json",
+        type=Path,
+        default=DEFAULT_POLYGON_JSON_PATH,
+        help="Three-curve JSON exported by shapely_rectangle_test.py.",
+    )
+    parser.add_argument(
         "--thickness",
         type=float,
         default=DEFAULT_COPPER_THICKNESS_MM,
@@ -885,6 +1190,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     build_msabp_in_cst(
         project_path=args.project,
         component_name=args.component,
+        polygon_json_path=args.polygon_json,
         thickness_mm=args.thickness,
         substrate_thickness_mm=args.substrate_thickness,
         reflector_connector_board_thickness_mm=(

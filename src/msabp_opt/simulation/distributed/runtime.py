@@ -1198,11 +1198,14 @@ class PrincessRuntime:
             progress = self.state.progress(run_id).as_dict()
             self._schedule_recoveries(now, progress)
             if progress != last_snapshot:
+                finished = int(progress["finished"])
+                total = int(progress["total"])
+                percentage = 100.0 if total == 0 else 100.0 * finished / total
                 print(
                     "[Princess] progress "
-                    f"completed={progress['completed']} running={progress['running']} "
-                    f"pending={progress['pending']} failed={progress['failed']} "
-                    f"total={progress['total']}",
+                    f"finished={finished}/{total} ({percentage:.1f}%) | "
+                    f"succeeded={progress['completed']} failed={progress['failed']} | "
+                    f"running={progress['running']} pending={progress['pending']}",
                     flush=True,
                 )
                 last_snapshot = progress

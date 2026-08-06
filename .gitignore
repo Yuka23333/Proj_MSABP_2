@@ -27,6 +27,7 @@ env/
 .vscode/
 .agents/
 .codex/
+.claude/
 .DS_Store
 Thumbs.db
 Desktop.ini
@@ -59,6 +60,14 @@ results/raw/*
 !results/raw/.gitkeep
 results/processed/*
 !results/processed/.gitkeep
+!results/processed/antenna_polygon_vertices.json
+!results/processed/doe_round*_summary.json
+results/figures/*
+!results/figures/.gitkeep
+
+# Large generated geometry-label arrays stay local; reproducible CSV worklists
+# and their round summaries are versioned instead.
+data/samples/*.npy
 
 # Common temporary files
 *.tmp

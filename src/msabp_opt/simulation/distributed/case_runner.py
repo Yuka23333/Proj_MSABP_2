@@ -36,6 +36,8 @@ from scripts.automation import cst_run_and_export_s11  # noqa: E402
 
 MANIFEST_SCHEMA_VERSION = 1
 S11_FILENAME = "S11.csv"
+RAD_EFF_FILENAME = cst_run_and_export_s11.RAD_EFF_FILENAME
+TOT_EFF_FILENAME = cst_run_and_export_s11.TOT_EFF_FILENAME
 FARFIELD_SOURCE_FILENAME = "Farfield Source [1].ffs"
 MANIFEST_FILENAME = "manifest.json"
 _SAFE_CASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -61,6 +63,8 @@ class CaseRunResult:
     farfield_source_path: Path | None
     dry_run: bool
     elapsed_seconds: float
+    rad_eff_path: Path | None = None
+    tot_eff_path: Path | None = None
 
 
 def sha256_file(path: str | Path) -> str:
@@ -161,7 +165,7 @@ def run_csv_row(
     dry_run: bool = False,
     stage_callback: StageCallback | None = None,
 ) -> CaseRunResult:
-    """Run one CSV row through build, clear, solver, S11, FFS, and manifest.
+    """Run one CSV row through build, solver, 1D/FFS exports, and manifest.
 
     ``dry_run`` performs the same typed row parsing and quantized geometry
     preflight, then writes a manifest without importing or connecting to CST.
@@ -179,10 +183,9 @@ def run_csv_row(
             raise ValueError(detail or "sampler marked this geometry invalid")
         parameters = antenna_sampler.parameters_from_csv_row(row)
         _notify(stage_callback, "prechecking_geometry")
-        _, preflight_report = cst_build_msabp_geometry.build_polygon_specs(
-            parameters=parameters,
+        _, preflight_report = cst_build_msabp_geometry.build_sampled_polygon_specs(
+            parameters,
             coordinate_quantum_mm=coordinate_quantum_mm,
-            allow_disconnected_conductor=allow_disconnected_conductor,
         )
     except Exception as exc:
         raise CaseRunError(resolved_case_id, "precheck", str(exc)) from exc
@@ -191,12 +194,20 @@ def run_csv_row(
     output_root = Path(output_root).expanduser().resolve()
     case_directory = output_root / _case_directory_name(resolved_case_id, id_width)
     s11_path = case_directory / S11_FILENAME
+    rad_eff_path = case_directory / RAD_EFF_FILENAME
+    tot_eff_path = case_directory / TOT_EFF_FILENAME
     farfield_destination = case_directory / FARFIELD_SOURCE_FILENAME
     manifest_path = case_directory / MANIFEST_FILENAME
 
     collisions = [
         path
-        for path in (s11_path, farfield_destination, manifest_path)
+        for path in (
+            s11_path,
+            rad_eff_path,
+            tot_eff_path,
+            farfield_destination,
+            manifest_path,
+        )
         if path.exists()
     ]
     if collisions and not overwrite:
@@ -301,7 +312,7 @@ def run_csv_row(
             stage_callback=stage_callback,
         )
     except Exception as exc:
-        raise CaseRunError(resolved_case_id, "solver_or_s11_export", str(exc)) from exc
+        raise CaseRunError(resolved_case_id, "solver_or_1d_export", str(exc)) from exc
 
     try:
         _notify(stage_callback, "copying_farfield_source")
@@ -335,6 +346,8 @@ def run_csv_row(
         "geometry": asdict(build_report),
         "artifacts": {
             "s11": _artifact_record(s11_path, case_directory),
+            "rad_eff": _artifact_record(rad_eff_path, case_directory),
+            "tot_eff": _artifact_record(tot_eff_path, case_directory),
             "farfield_source": _artifact_record(
                 farfield_destination, case_directory
             ),
@@ -355,4 +368,6 @@ def run_csv_row(
         farfield_source_path=farfield_destination,
         dry_run=False,
         elapsed_seconds=elapsed_seconds,
+        rad_eff_path=rad_eff_path,
+        tot_eff_path=tot_eff_path,
     )
