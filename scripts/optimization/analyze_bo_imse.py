@@ -23,7 +23,6 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
-from scipy.stats import qmc
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -42,9 +41,6 @@ from msabp_opt.simulation.distributed.transport import (  # noqa: E402
     push_file_atomic,
     run_remote_powershell,
 )
-from scripts.automation import antenna_sampler  # noqa: E402
-
-
 SCHEMA_VERSION = 1
 INTEGRATION_SIZE = 1024
 INTEGRATION_SEED = 20260808
@@ -127,6 +123,8 @@ def collect_cumulative_training_stages(
 ) -> tuple[qlogehvi.InputSpace, list[dict[str, Any]]]:
     """Collect the exact cumulative datasets used by the three comparisons."""
 
+    from scripts.automation import antenna_sampler
+
     input_space = qlogehvi.input_space_from_sampling_config(
         antenna_sampler.DEFAULT_CONFIG_PATH
     )
@@ -173,6 +171,8 @@ def build_request_payload(
         qlogehvi.ProposalSettings().gp_fixed_noise_variance
     ),
 ) -> dict[str, Any]:
+    from scipy.stats import qmc
+
     if integration_size < 2 or not integration_size.bit_count() == 1:
         raise ValueError("integration_size must be a power of two")
     if len(stages) != 3:
