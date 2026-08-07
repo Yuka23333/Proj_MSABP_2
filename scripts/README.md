@@ -10,6 +10,22 @@
 
 脚本应尽量保持轻量，只处理命令行参数、配置加载和流程编排。可复用实现放在 `src/msabp_opt/`，并为脚本提供 `if __name__ == "__main__":` 入口。
 
+## DoE 三目标采样质量图
+
+`postprocessing/plot_doe_pareto_3d.py` 可递归读取一个或多个 Princess
+结果目录，按指定频带汇总基板总面积、带内最大 S11 和带内平均
+Tot_Eff，并生成带参考点和采样非支配解集标记的三维散点图。参考点不参与
+采样 Pareto 集的计算；当前 Tot_Eff 指标对导出的 dB 样本做算术平均。
+
+在 IDE 中按 F5 时修改脚本顶部的 `F5_*` 常量。命令行可重复传入来源目录：
+
+```powershell
+python scripts\postprocessing\plot_doe_pareto_3d.py `
+  --source results\raw\doe-round1-lhs-512 `
+  --source results\raw\another-run `
+  --band 3.1 4.8
+```
+
 ## 完整天线几何
 
 `geometry/antenna_outline.py` 在被导入时通过

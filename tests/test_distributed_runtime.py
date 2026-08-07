@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import sys
 import threading
 import time
@@ -126,6 +127,43 @@ def test_explicit_device_selection_opts_in_disabled_device() -> None:
     assert not registry.devices[0].enabled
     with pytest.raises(PrincessRuntimeError, match="no Maid devices"):
         select_devices(registry)
+
+
+def test_custom_results_root_is_frozen_for_resume(tmp_path: Path) -> None:
+    source = _write_small_csv(tmp_path / "samples.csv")
+    device = _device(enabled=True)
+    registry = _registry(device)
+    custom_results = tmp_path / "results" / "raw" / "shared-bo-plan"
+
+    preparation = prepare_run(
+        source_csv=source,
+        run_id="bo-batch-0000",
+        registry=registry,
+        devices=(device,),
+        repository_root=tmp_path,
+        results_root=custom_results,
+    )
+    payload = json.loads(preparation.paths.runtime_json.read_text(encoding="utf-8"))
+
+    assert payload["results_root"] == str(custom_results.resolve())
+    repeated = prepare_run(
+        source_csv=source,
+        run_id="bo-batch-0000",
+        registry=registry,
+        devices=(device,),
+        repository_root=tmp_path,
+        results_root=custom_results,
+    )
+    assert not repeated.created
+    with pytest.raises(PrincessRuntimeError, match="results_root"):
+        prepare_run(
+            source_csv=source,
+            run_id="bo-batch-0000",
+            registry=registry,
+            devices=(device,),
+            repository_root=tmp_path,
+            results_root=tmp_path / "different-results",
+        )
 
 
 def test_deployment_commits_runtime_last_and_refreshes_project_on_resume(

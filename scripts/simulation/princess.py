@@ -59,6 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="device id to use; repeat for multiple devices",
     )
     start.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
+    start.add_argument(
+        "--results-root",
+        type=Path,
+        default=None,
+        help="override results/raw/<run-id>; useful for iterative BO batches",
+    )
     start.add_argument("--dry-run", action="store_true")
     start.add_argument("--allow-disconnected-conductor", action="store_true")
     start.add_argument("--coordinate-quantum-mm", type=float, default=0.01)
@@ -131,6 +137,7 @@ def _run_start(args: argparse.Namespace) -> int:
         registry=registry,
         devices=devices,
         repository_root=REPOSITORY_ROOT,
+        results_root=args.results_root,
     )
     print(
         f"[Princess] run={run_id} valid={preparation.worklist.worklist.row_count} "

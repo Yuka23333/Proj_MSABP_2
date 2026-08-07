@@ -339,6 +339,21 @@ def _load_or_create_run_secret(
             "worklist_csv_sha256": worklist.worklist.sha256,
             "advertise_url": registry.advertise_url,
         }
+        stored_results_root = payload.get("results_root")
+        if stored_results_root is None:
+            # Schema-1 runs created before custom result roots always used the
+            # default location.  Preserve their resumability without allowing
+            # a legacy run id to be silently redirected elsewhere.
+            legacy_default = (
+                paths.run_root.parents[2]
+                / "results"
+                / "raw"
+                / paths.run_id
+            )
+            if paths.results_root != legacy_default:
+                expected["results_root"] = str(paths.results_root)
+        else:
+            expected["results_root"] = str(paths.results_root)
         mismatches = [
             name for name, value in expected.items() if payload.get(name) != value
         ]
@@ -373,6 +388,7 @@ def _load_or_create_run_secret(
         "bind_host": registry.bind_host,
         "port": registry.port,
         "device_ids": sorted(set(device_ids)),
+        "results_root": str(paths.results_root),
         "api_token": token,
     }
     _atomic_write_bytes(

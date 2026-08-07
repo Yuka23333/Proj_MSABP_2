@@ -271,6 +271,10 @@ Princess 主机上的持久化状态：
 - `results/raw/<run-id>/case_####/`：验收后的 `S11.csv`、`Rad_Eff.csv`、
   `Tot_Eff.csv`、`Farfield Source [1].ffs` 和 `manifest.json`。dry-run 结果只有 manifest。
 
+`princess.py start --results-root <path>` 可把多个互不相同的静态 batch run
+汇入同一个结果根目录，供 qLogEHVI 等迭代控制器使用。该路径会写入
+`princess_runtime.json` 并在恢复时严格核对，不能用同一 run id 静默改投其他目录。
+
 每台远端 Maid 的工作区根目录为
 `simulations/runs/<run-id>/workers/<device-id>/`：
 
