@@ -160,6 +160,49 @@ def collect_cumulative_training_stages(
     return input_space, stages
 
 
+def collect_doe_parity_training_stages(
+    *,
+    band_ghz: tuple[float, float] = (3.1, 4.8),
+) -> tuple[qlogehvi.InputSpace, list[dict[str, Any]]]:
+    """Split the stably ordered 498-row DoE into 1-based odd/even rows."""
+
+    from scripts.automation import antenna_sampler
+
+    input_space = qlogehvi.input_space_from_sampling_config(
+        antenna_sampler.DEFAULT_CONFIG_PATH
+    )
+    doe_source = STAGE_DIRECTORIES[0][1]
+    observations = qlogehvi.collect_observations(
+        [doe_source],
+        band_ghz=band_ghz,
+    )
+    if len(observations) % 2:
+        raise ValueError("DoE parity split requires an even observation count")
+    stages: list[dict[str, Any]] = []
+    for label, begin in (("doe_rows_odd_1based", 0), ("doe_rows_even_1based", 1)):
+        subset = observations.iloc[begin::2].reset_index(drop=True)
+        train_x, train_y_rf, _, aggregate = qlogehvi.training_arrays(
+            subset,
+            input_space,
+        )
+        stages.append(
+            {
+                "label": label,
+                "added_source": str(doe_source.resolve()),
+                "partition": "stable observation order, 1-based row parity",
+                "observations_raw": int(len(subset)),
+                "observations_distinct": int(len(train_x)),
+                "penalty_observations": int(subset["is_penalty"].sum()),
+                "replicate_groups": int((aggregate["replicate_count"] > 1).sum()),
+                "first_case_id": str(subset.iloc[0]["case_id"]),
+                "last_case_id": str(subset.iloc[-1]["case_id"]),
+                "x_unit": train_x.tolist(),
+                "y_rf_maximize": train_y_rf.tolist(),
+            }
+        )
+    return input_space, stages
+
+
 def build_request_payload(
     input_space: qlogehvi.InputSpace,
     stages: Sequence[Mapping[str, Any]],
@@ -175,8 +218,8 @@ def build_request_payload(
 
     if integration_size < 2 or not integration_size.bit_count() == 1:
         raise ValueError("integration_size must be a power of two")
-    if len(stages) != 3:
-        raise ValueError("exactly three cumulative training stages are required")
+    if not stages:
+        raise ValueError("at least one training stage is required")
     exponent = integration_size.bit_length() - 1
     integration_x = qmc.Sobol(
         d=len(input_space.names),
@@ -212,14 +255,29 @@ def build_request_payload(
     }
 
 
-def prepare_request(path: Path = REQUEST_PATH) -> Path:
-    input_space, stages = collect_cumulative_training_stages()
+def prepare_request(
+    path: Path = REQUEST_PATH,
+    *,
+    doe_parity_split: bool = False,
+) -> Path:
+    if doe_parity_split:
+        input_space, stages = collect_doe_parity_training_stages()
+    else:
+        input_space, stages = collect_cumulative_training_stages()
     payload = build_request_payload(input_space, stages)
     _atomic_write_json(path, payload)
     for stage in stages:
+        raw_count = stage.get(
+            "cumulative_observations_raw",
+            stage.get("observations_raw"),
+        )
+        distinct_count = stage.get(
+            "cumulative_observations_distinct",
+            stage.get("observations_distinct"),
+        )
         print(
-            f"[IMSE] {stage['label']}: raw={stage['cumulative_observations_raw']} "
-            f"distinct={stage['cumulative_observations_distinct']} "
+            f"[IMSE] {stage['label']}: raw={raw_count} "
+            f"distinct={distinct_count} "
             f"penalty={stage['penalty_observations']}",
             flush=True,
         )
@@ -280,8 +338,8 @@ def execute_worker_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     stages = payload.get("stages")
     if list(objectives or ()) != list(OBJECTIVE_NAMES):
         raise ValueError("unexpected IMSE objective list")
-    if not isinstance(stages, list) or len(stages) != 3:
-        raise ValueError("IMSE request must contain exactly three stages")
+    if not isinstance(stages, list) or not stages:
+        raise ValueError("IMSE request must contain at least one stage")
 
     runtime = qlogehvi._botorch_imports()
     torch = runtime["torch"]
@@ -374,15 +432,19 @@ def execute_worker_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
             del model, mll, y_tensor, y_variance
             torch.cuda.empty_cache()
 
+    baseline_stage = str(_mapping(stages[0], "stages[0]").get("label", 0))
     baseline = {
         record["objective"]: record["imse"]
         for record in results
-        if record["stage"] == "doe"
+        if record["stage"] == baseline_stage
     }
     for record in results:
         ratio = record["imse"] / baseline[record["objective"]]
-        record["fraction_of_doe_imse"] = ratio
-        record["reduction_from_doe_fraction"] = 1.0 - ratio
+        record["fraction_of_baseline_imse"] = ratio
+        record["reduction_from_baseline_fraction"] = 1.0 - ratio
+        if baseline_stage == "doe":
+            record["fraction_of_doe_imse"] = ratio
+            record["reduction_from_doe_fraction"] = 1.0 - ratio
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "completed",
@@ -392,6 +454,8 @@ def execute_worker_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
             for key in ("definition", "size", "seed")
         },
         "gp": dict(gp),
+        "stage_count": len(stages),
+        "baseline_stage": baseline_stage,
         "results": results,
         "runtime": {
             "device": str(device),
@@ -464,9 +528,21 @@ def write_summary(
 ) -> pd.DataFrame:
     response = json.loads(response_path.read_text(encoding="utf-8-sig"))
     results = response.get("results")
-    if not isinstance(results, list) or len(results) != 6:
-        raise ValueError("IMSE response must contain six fit results")
+    expected_results = 2 * int(response.get("stage_count", len(results or ()) // 2))
+    if (
+        not isinstance(results, list)
+        or expected_results < 2
+        or len(results) != expected_results
+    ):
+        raise ValueError(
+            "IMSE response result count does not match its training stages"
+        )
     frame = pd.DataFrame.from_records(results)
+    if "fraction_of_baseline_imse" not in frame:
+        frame["fraction_of_baseline_imse"] = frame["fraction_of_doe_imse"]
+        frame["reduction_from_baseline_fraction"] = frame[
+            "reduction_from_doe_fraction"
+        ]
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_csv(summary_path, index=False, encoding="utf-8-sig")
     print("[IMSE] results", flush=True)
@@ -477,8 +553,8 @@ def write_summary(
                 "objective",
                 "training_observations",
                 "imse",
-                "fraction_of_doe_imse",
-                "reduction_from_doe_fraction",
+                "fraction_of_baseline_imse",
+                "reduction_from_baseline_fraction",
                 "fit_seconds",
             ]
         ].to_string(index=False),
@@ -497,6 +573,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--summary", type=Path, default=SUMMARY_PATH)
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--summarize-only", action="store_true")
+    parser.add_argument(
+        "--doe-parity-split",
+        action="store_true",
+        help="compare stable 1-based odd/even rows of the initial DoE",
+    )
     return parser.parse_args(argv)
 
 
@@ -508,7 +589,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.summarize_only:
         write_summary(args.response.resolve(), args.summary.resolve())
         return 0
-    request_path = prepare_request(args.request.resolve())
+    request_path = prepare_request(
+        args.request.resolve(),
+        doe_parity_split=args.doe_parity_split,
+    )
     if args.prepare_only:
         print(f"[IMSE] request: {request_path}", flush=True)
         return 0
