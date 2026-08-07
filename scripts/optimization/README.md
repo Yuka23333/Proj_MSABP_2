@@ -128,6 +128,26 @@ are equivalent to:
 
 `--proposal-backend local_cpu` remains available as a diagnostic fallback.
 
+## RF-GP IMSE comparison
+
+`analyze_bo_imse.py` compares the latent RF-GP posterior variance after the
+initial DoE, after BO1, and after BO2. It freezes one 1024-point scrambled Sobol
+set in the normalized 23-dimensional search cube, then performs the two RF
+objective fits independently at all three cumulative stages (six fits total).
+The local controller only parses results and transfers compact arrays; all
+float64 fitting and posterior evaluation run in `bocuda` on the coconutg2 V100.
+It does not connect to CST or modify optimization state.
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\optimization\analyze_bo_imse.py
+```
+
+The JSON and tabular CSV outputs are written under
+`results/processed/bo_imse_1024/`. Use `--prepare-only` to build the immutable
+request without contacting coconutg2, or `--summarize-only` to re-render an
+already retrieved response.
+
 For each batch, the controller writes
 `_qlogehvi/batch_NNNN_proposal_request.json`, atomically uploads it, invokes
 `qlogehvi_gpu_worker.py` through a short synchronous SSH command, and atomically
