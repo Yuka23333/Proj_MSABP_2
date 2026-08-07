@@ -31,7 +31,7 @@ for import_root in (REPOSITORY_ROOT, SRC_ROOT):
     if str(import_root) not in sys.path:
         sys.path.insert(0, str(import_root))
 
-from msabp_opt.optimization import qlogehvi  # noqa: E402
+from msabp_opt.optimization import proposal_relay, qlogehvi  # noqa: E402
 from msabp_opt.simulation.distributed.config import (  # noqa: E402
     DEFAULT_DEVICE_CONFIG_PATH,
     load_device_registry,
@@ -39,13 +39,14 @@ from msabp_opt.simulation.distributed.config import (  # noqa: E402
 from msabp_opt.simulation.distributed.runtime import (  # noqa: E402
     PrincessRunPaths,
     select_devices,
+    validate_run_id,
 )
 from msabp_opt.simulation.distributed.state import PrincessState  # noqa: E402
 from scripts.automation import antenna_sampler  # noqa: E402
 
 
 # IDE / F5 campaign settings.
-F5_PLAN_ID = "msabp-qlogehvi-001"
+F5_PLAN_ID = "msabp-qlogehvi-gpu-001"
 F5_SOURCE_DIRECTORIES = (
     REPOSITORY_ROOT / "results" / "raw" / "doe-round1-lhs-512",
 )
@@ -55,6 +56,8 @@ F5_Q = 4
 F5_BAND_GHZ = (3.1, 4.8)
 F5_DEVICE_IDS = ("convallariag5", "coconutg2")
 F5_REQUIRE_CONFIRMATION = True
+F5_PROPOSAL_BACKEND = "remote_cuda"
+F5_PROPOSAL_REMOTE = proposal_relay.RemoteProposalConfig()
 
 SAMPLING_CONFIG = (
     REPOSITORY_ROOT / "configs" / "optimization" / "antenna_sampling.json"
@@ -67,7 +70,7 @@ PLAN_FILENAME = "optimization_plan.json"
 STATE_FILENAME = "optimization_state.json"
 CONTROL_DIRECTORY_NAME = "_qlogehvi"
 OBSERVATIONS_FILENAME = "observations.csv"
-PLAN_SCHEMA_VERSION = 1
+PLAN_SCHEMA_VERSION = 2
 STATE_SCHEMA_VERSION = 1
 
 
@@ -83,6 +86,8 @@ class CampaignConfig:
     device_config: Path = DEVICE_CONFIG
     project_template: Path = PROJECT_TEMPLATE
     proposal: qlogehvi.ProposalSettings = qlogehvi.ProposalSettings(q=F5_Q)
+    proposal_backend: str = F5_PROPOSAL_BACKEND
+    proposal_remote: proposal_relay.RemoteProposalConfig = F5_PROPOSAL_REMOTE
     coordinate_quantum_mm: float = 0.01
     allow_disconnected_conductor: bool = False
     max_attempts: int = 3
@@ -146,8 +151,7 @@ def _unique_resolved_paths(paths: Sequence[str | Path]) -> tuple[Path, ...]:
 
 
 def _validate_config(config: CampaignConfig) -> CampaignConfig:
-    if not config.plan_id or any(character.isspace() for character in config.plan_id):
-        raise ValueError("plan_id must be non-empty and contain no whitespace")
+    validate_run_id(config.plan_id)
     if config.total_budget < 1:
         raise ValueError("total_budget must be at least one")
     if config.proposal.q < 1:
@@ -158,6 +162,8 @@ def _validate_config(config: CampaignConfig) -> CampaignConfig:
         raise ValueError("at least one Maid device is required")
     if len(set(config.device_ids)) != len(config.device_ids):
         raise ValueError("Maid device ids must be unique")
+    if config.proposal_backend not in {"local_cpu", "remote_cuda"}:
+        raise ValueError("proposal_backend must be local_cpu or remote_cuda")
     low, high = config.band_ghz
     if not low < high:
         raise ValueError("band must satisfy low < high")
@@ -179,6 +185,7 @@ def _validate_config(config: CampaignConfig) -> CampaignConfig:
             "device_config": config.device_config.resolve(),
             "project_template": config.project_template.resolve(),
             "proposal": config.proposal,
+            "proposal_remote": config.proposal_remote,
         }
     )
 
@@ -203,7 +210,20 @@ def _plan_payload(config: CampaignConfig, input_space: qlogehvi.InputSpace) -> d
         "sampling_config_sha256": _sha256(config.sampling_config),
         "input_space": input_space.to_dict(),
         "algorithm": "qLogExpectedHypervolumeImprovement",
-        "compute": {"device": "cpu", "dtype": "float64", "cuda": False},
+        "compute": {
+            "backend": config.proposal_backend,
+            "device": (
+                config.proposal_remote.compute_device
+                if config.proposal_backend == "remote_cuda"
+                else "cpu"
+            ),
+            "dtype": "float64",
+            "remote": (
+                config.proposal_remote.to_dict()
+                if config.proposal_backend == "remote_cuda"
+                else None
+            ),
+        },
         "software": {
             "python": platform.python_version(),
             "torch": package_version("torch"),
@@ -445,13 +465,46 @@ def create_batch(
     batch_index = int(state["next_batch_index"])
     candidate_start = int(state["next_candidate_index"])
     settings = qlogehvi.ProposalSettings(**{**asdict(config.proposal), "q": q})
-    proposal = qlogehvi.propose_qlogehvi_batch(
-        observations,
-        input_space,
-        settings=settings,
-        iteration=batch_index,
-    )
     control_directory = config.output_directory / CONTROL_DIRECTORY_NAME
+    if config.proposal_backend == "local_cpu":
+        proposal = qlogehvi.propose_qlogehvi_batch(
+            observations,
+            input_space,
+            settings=settings,
+            iteration=batch_index,
+            device_name="cpu",
+        )
+        proposal.diagnostics["proposal_executor"] = "local"
+    else:
+        request_path = (
+            control_directory / f"batch_{batch_index:04d}_proposal_request.json"
+        )
+        response_path = (
+            control_directory / f"batch_{batch_index:04d}_proposal_response.json"
+        )
+        request = proposal_relay.build_request_payload(
+            observations,
+            input_space,
+            settings=settings,
+            iteration=batch_index,
+            compute_device=config.proposal_remote.compute_device,
+        )
+        proposal_relay.write_request(request_path, request)
+        registry = load_device_registry(config.device_config)
+        proposal_device = select_devices(
+            registry,
+            (config.proposal_remote.device_id,),
+        )[0]
+        proposal = proposal_relay.relay_remote_proposal(
+            device=proposal_device,
+            remote=config.proposal_remote,
+            plan_id=config.plan_id,
+            batch_index=batch_index,
+            local_request_path=request_path,
+            local_response_path=response_path,
+            expected_q=q,
+            expected_dimension=len(input_space.names),
+        )
     candidate_path = control_directory / f"batch_{batch_index:04d}_candidates.csv"
     worklist_path = control_directory / f"batch_{batch_index:04d}_worklist.csv"
     rows: list[dict[str, Any]] = []
@@ -715,6 +768,10 @@ def execute_active_batch(
 def validate_devices(config: CampaignConfig) -> None:
     registry = load_device_registry(config.device_config)
     select_devices(registry, config.device_ids)
+    if config.proposal_backend == "remote_cuda":
+        selected = select_devices(registry, (config.proposal_remote.device_id,))
+        if not selected[0].is_remote:
+            raise ValueError("remote_cuda proposal device must be SSH-addressable")
 
 
 def run_campaign(
@@ -732,7 +789,10 @@ def run_campaign(
     print(
         f"[qLogEHVI] sources={len(actual_sources(config))} "
         f"observations={len(observations)} target={target_count}/{config.total_budget} "
-        f"q={config.proposal.q} device=cpu dtype=float64",
+        f"q={config.proposal.q} proposal={config.proposal_backend} "
+        "device="
+        f"{config.proposal_remote.compute_device if config.proposal_backend == 'remote_cuda' else 'cpu'} "
+        "dtype=float64",
         flush=True,
     )
     if prepare_only:
@@ -807,6 +867,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--optimization-maxiter", type=int, default=None)
     parser.add_argument("--gp-training-steps", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument(
+        "--proposal-backend",
+        choices=("local_cpu", "remote_cuda"),
+        default=None,
+    )
+    parser.add_argument("--proposal-device", default=None)
+    parser.add_argument("--proposal-python", default=None)
+    parser.add_argument("--proposal-compute-device", default=None)
+    parser.add_argument("--proposal-timeout-seconds", type=float, default=None)
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--stop-after-proposal", action="store_true")
     parser.add_argument("--yes", action="store_true")
@@ -828,6 +897,12 @@ def _config_from_args(args: argparse.Namespace) -> CampaignConfig:
     proposal_defaults = existing.get("proposal_settings", {})
     if not isinstance(proposal_defaults, Mapping):
         proposal_defaults = {}
+    existing_compute = existing.get("compute", {})
+    if not isinstance(existing_compute, Mapping):
+        existing_compute = {}
+    existing_remote = existing_compute.get("remote", {})
+    if not isinstance(existing_remote, Mapping):
+        existing_remote = {}
 
     sources = (
         tuple(args.sources)
@@ -891,6 +966,33 @@ def _config_from_args(args: argparse.Namespace) -> CampaignConfig:
             ),
             gp_training_steps=int(
                 proposal_value(args.gp_training_steps, "gp_training_steps", 50)
+            ),
+        ),
+        proposal_backend=str(
+            args.proposal_backend
+            or existing_compute.get("backend", F5_PROPOSAL_BACKEND)
+        ),
+        proposal_remote=proposal_relay.RemoteProposalConfig(
+            device_id=str(
+                args.proposal_device
+                or existing_remote.get("device_id", F5_PROPOSAL_REMOTE.device_id)
+            ),
+            python_path=str(
+                args.proposal_python
+                or existing_remote.get("python_path", F5_PROPOSAL_REMOTE.python_path)
+            ),
+            compute_device=str(
+                args.proposal_compute_device
+                or existing_remote.get(
+                    "compute_device", F5_PROPOSAL_REMOTE.compute_device
+                )
+            ),
+            timeout_seconds=float(
+                args.proposal_timeout_seconds
+                if args.proposal_timeout_seconds is not None
+                else existing_remote.get(
+                    "timeout_seconds", F5_PROPOSAL_REMOTE.timeout_seconds
+                )
             ),
         ),
         coordinate_quantum_mm=float(

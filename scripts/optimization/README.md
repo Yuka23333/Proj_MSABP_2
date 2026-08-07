@@ -33,13 +33,35 @@ renumbered, so every accepted LHS row can be traced back to its original point.
 own output directory to that source set. The default campaign is
 `q=4`, 200 new target evaluations, and `[3.1, 4.8] GHz`.
 
-The controller always runs BoTorch on CPU in `float64`; CUDA is never selected.
+The default controller uses a relay topology: campaign ownership remains on
+the Princess host, while qLogEHVI fitting and acquisition optimization run in
+`float64` on the `coconutg2` V100 through its `bocuda` environment.
+
+```text
+coconutg2 GPU proposal
+        │ 4 candidates
+        ▼
+Princess host (authoritative plan/state/results)
+        │ worklist
+        ├──────────────► convallariag5 Maid/CST ──┐
+        └──────────────► coconutg2 Maid/CST ──────┤
+                                                  ▼
+                                      Princess host results
+                                                  │ compact training arrays
+                                                  └────────► next GPU proposal
+```
+
+The two roles on `coconutg2` are independent processes and environments:
+`bocuda` only calculates BO candidates, while `maid` controls local CST. The
+GPU worker never owns the budget, reads CST artifacts, or writes final case
+results. The Princess host remains the only campaign state authority.
+
 Two fixed-noise `SingleTaskGP` outputs model the unstandardized linear RF
 objectives. The third acquisition output is exact negative substrate area,
 computed directly from the candidate dimensions with zero posterior variance.
 The joint `q=4` acquisition is optimized continuously in the normalized
 23-dimensional unit cube; it is not restricted to a pre-generated candidate
-pool. The default CPU settings use 256 raw starts, 8 restarts, 64 MC samples,
+pool. The default settings use 256 raw starts, 8 restarts, 64 MC samples,
 and at most 100 optimizer iterations.
 The maximization-form objectives used by qLogEHVI are therefore:
 
@@ -76,17 +98,35 @@ C:\Users\David\.conda\envs\cstpy\python.exe `
   scripts\optimization\run_qlogehvi.py `
   --source results\raw\doe-round1-lhs-512 `
   --source results\raw\another-compatible-run `
-  --output results\raw\msabp-qlogehvi-001 `
+  --output results\raw\msabp-qlogehvi-gpu-001 `
   --budget 200 --q 4
 ```
 
-`--stop-after-proposal` fits qLogEHVI and persists one resumable batch without
-starting Princess. The interpreter used for proposal generation must contain
-`torch`, `gpytorch`, and `botorch`; CST bindings are required only because the
-same F5 entrypoint also starts Princess.
+`--stop-after-proposal` asks coconutg2 for one proposal and persists the
+resumable batch without starting Princess. The local controller interpreter no
+longer performs the heavy BoTorch calculation. The default proposal settings
+are equivalent to:
 
-On Windows the controller adds the active Conda environment's `Scripts`
+```powershell
+--proposal-backend remote_cuda `
+--proposal-device coconutg2 `
+--proposal-python C:\Users\telecom\miniforge3\envs\bocuda\python.exe `
+--proposal-compute-device cuda
+```
+
+`--proposal-backend local_cpu` remains available as a diagnostic fallback.
+
+For each batch, the controller writes
+`_qlogehvi/batch_NNNN_proposal_request.json`, atomically uploads it, invokes
+`qlogehvi_gpu_worker.py` through a short synchronous SSH command, and atomically
+retrieves `batch_NNNN_proposal_response.json`. Only normalized training arrays,
+objective arrays, bounds, settings, and summary counts are transferred. A
+SHA-256 request identity is embedded in the remote filenames and response, so
+an interrupted retry can safely reuse an already completed proposal without
+creating a second batch.
+
+On Windows the GPU worker adds the active Conda environment's `Scripts`
 directory to PATH for `ninja`, discovers Visual Studio Build Tools with
-`vswhere`, and loads the x64 compiler variables into the controller process.
+`vswhere`, and loads the x64 compiler variables into its own process.
 This enables BoTorch's fused qLogEHVI extension without changing system-wide
 environment variables.

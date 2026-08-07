@@ -726,8 +726,47 @@ def propose_qlogehvi_batch(
     *,
     settings: ProposalSettings,
     iteration: int,
+    device_name: str = "cpu",
 ) -> ProposalResult:
-    """Fit two CPU/float64 RF GPs and propose a qLogEHVI batch."""
+    """Aggregate observations, fit two RF GPs, and propose a qLogEHVI batch."""
+
+    train_x, train_y_rf, train_y_full, aggregate = training_arrays(
+        observations,
+        input_space,
+    )
+    return propose_qlogehvi_from_training_arrays(
+        train_x,
+        train_y_rf,
+        train_y_full,
+        input_space,
+        settings=settings,
+        iteration=iteration,
+        device_name=device_name,
+        training_summary={
+            "training_observations_raw": int(len(observations)),
+            "penalty_observations": int(observations["is_penalty"].sum()),
+            "replicate_groups": int((aggregate["replicate_count"] > 1).sum()),
+        },
+    )
+
+
+def propose_qlogehvi_from_training_arrays(
+    train_x: np.ndarray,
+    train_y_rf: np.ndarray,
+    train_y_full: np.ndarray,
+    input_space: InputSpace,
+    *,
+    settings: ProposalSettings,
+    iteration: int,
+    device_name: str,
+    training_summary: Mapping[str, int] | None = None,
+) -> ProposalResult:
+    """Fit float64 RF GPs and propose one batch on CPU or CUDA.
+
+    This array-only boundary is the wire contract used by the coconutg2 GPU
+    proposal worker.  Geometry, result parsing, campaign state, and penalties
+    remain on the Princess/controller host.
+    """
 
     if settings.q < 1:
         raise ValueError("q must be at least one")
@@ -735,18 +774,43 @@ def propose_qlogehvi_batch(
         raise ValueError("raw_samples must be at least num_restarts")
     if settings.num_restarts < 1:
         raise ValueError("num_restarts must be at least one")
+    train_x = np.asarray(train_x, dtype=float)
+    train_y_rf = np.asarray(train_y_rf, dtype=float)
+    train_y_full = np.asarray(train_y_full, dtype=float)
+    expected_dimension = len(input_space.names)
+    if train_x.ndim != 2 or train_x.shape[1] != expected_dimension:
+        raise ValueError("train_x shape does not match the input space")
+    if train_y_rf.shape != (len(train_x), 2):
+        raise ValueError("train_y_rf must have shape (n, 2)")
+    if train_y_full.shape != (len(train_x), 3):
+        raise ValueError("train_y_full must have shape (n, 3)")
+    if not (
+        np.isfinite(train_x).all()
+        and np.isfinite(train_y_rf).all()
+        and np.isfinite(train_y_full).all()
+    ):
+        raise ValueError("training arrays must contain only finite values")
+    tolerance = 1e-9
+    if np.any(train_x < -tolerance) or np.any(train_x > 1.0 + tolerance):
+        raise ValueError("normalized train_x values must lie inside [0, 1]")
+    train_x = np.clip(train_x, 0.0, 1.0)
+    if len(train_x) < 2:
+        raise ValueError("at least two distinct observations are required for GP fitting")
+
+    requested_device = str(device_name).strip().lower()
+    if not requested_device:
+        raise ValueError("device_name must be non-empty")
     runtime = _botorch_imports()
     torch = runtime["torch"]
     torch.set_default_dtype(torch.float64)
-    device = torch.device("cpu")
+    device = torch.device(requested_device)
+    if device.type == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA proposal requested but torch.cuda.is_available() is false")
+        if device.index is not None and device.index >= torch.cuda.device_count():
+            raise RuntimeError(f"CUDA device index is unavailable: {device.index}")
     dtype = torch.float64
 
-    train_x, train_y_rf, train_y_full, aggregate = training_arrays(
-        observations,
-        input_space,
-    )
-    if len(train_x) < 2:
-        raise ValueError("at least two distinct observations are required for GP fitting")
     x_tensor = torch.as_tensor(train_x, dtype=dtype, device=device)
     y_tensor = torch.as_tensor(train_y_rf, dtype=dtype, device=device)
     y_variance = torch.full_like(y_tensor, settings.gp_fixed_noise_variance)
@@ -857,18 +921,30 @@ def propose_qlogehvi_batch(
         raise RuntimeError("qLogEHVI proposed a previously observed point")
     values_array = np.atleast_1d(acquisition_values.detach().cpu().numpy())
     fit_status = str(getattr(fit_result, "status", "unknown"))
+    summary = dict(training_summary or {})
+    device_label = str(device)
+    cuda_name = None
+    cuda_capability = None
+    if device.type == "cuda":
+        cuda_index = (
+            device.index if device.index is not None else torch.cuda.current_device()
+        )
+        cuda_name = torch.cuda.get_device_name(cuda_index)
+        cuda_capability = list(torch.cuda.get_device_capability(cuda_index))
     return ProposalResult(
         unit_values=unit_values,
         raw_values=raw_values,
         acquisition_values=tuple(float(value) for value in values_array.ravel()),
         diagnostics={
             "algorithm": "qLogExpectedHypervolumeImprovement",
-            "device": "cpu",
+            "device": device_label,
             "dtype": "float64",
             "q": settings.q,
-            "training_observations_raw": int(len(observations)),
+            "training_observations_raw": int(
+                summary.get("training_observations_raw", len(train_x))
+            ),
             "training_observations_distinct": int(len(train_x)),
-            "penalty_observations": int(observations["is_penalty"].sum()),
+            "penalty_observations": int(summary.get("penalty_observations", 0)),
             "raw_samples": settings.raw_samples,
             "num_restarts": settings.num_restarts,
             "mc_samples": settings.mc_samples,
@@ -882,6 +958,8 @@ def propose_qlogehvi_batch(
             "reference_point_maximize": ref.tolist(),
             "nearest_observation_distances": nearest.tolist(),
             "fit_status": fit_status,
-            "replicate_groups": int((aggregate["replicate_count"] > 1).sum()),
+            "replicate_groups": int(summary.get("replicate_groups", 0)),
+            "cuda_device_name": cuda_name,
+            "cuda_capability": cuda_capability,
         },
     )
