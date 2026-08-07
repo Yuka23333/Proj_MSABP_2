@@ -30,8 +30,9 @@ renumbered, so every accepted LHS row can be traced back to its original point.
 
 `run_qlogehvi.py` uses the completed DoE and any additional repeated
 `--source` directories as historical observations, then automatically adds its
-own output directory to that source set. The default campaign is
-`q=4`, 200 new target evaluations, and `[3.1, 4.8] GHz`.
+own output directory to that source set. The current continuation campaign is
+`q=4`, 100 new target evaluations, and `[3.1, 4.8] GHz`; it uses both the
+original 512-point DoE and `msabp-qlogehvi-gpu-001` as historical sources.
 
 The default controller uses a relay topology: campaign ownership remains on
 the Princess host, while qLogEHVI fitting and acquisition optimization run in
@@ -60,8 +61,12 @@ The `bocuda` environment must contain `numpy`, `pandas`, `torch`, `botorch`,
 `C:\Users\telecom\miniforge3\envs\bocuda\python.exe`.
 
 Two fixed-noise `SingleTaskGP` outputs model the unstandardized linear RF
-objectives. The third acquisition output is exact negative substrate area,
-computed directly from the candidate dimensions with zero posterior variance.
+objectives. The third acquisition output is exact negative scaled substrate
+area, computed directly from the candidate dimensions with zero posterior
+variance. Its fixed physical reference is 1.01 times the maximum area allowed
+by the input space; dividing physical area by this value makes the
+minimization-form area reference exactly `1` (and the internal maximization
+reference exactly `-1`).
 The joint `q=4` acquisition is optimized continuously in the normalized
 23-dimensional unit cube; it is not restricted to a pre-generated candidate
 pool. The default settings use 256 raw starts, 8 restarts, 64 MC samples,
@@ -70,15 +75,19 @@ The maximization-form objectives used by qLogEHVI are therefore:
 
 1. `-max(|S11|)` in the band;
 2. mean linear `Tot_Eff` in the band;
-3. negative substrate area in mm².
+3. `-substrate_area_mm2 / area_reference_mm2`.
 
 Individual linear Tot_Eff samples above 1 are discarded before the arithmetic
 mean is taken. A
 geometry-preflight failure or a CST task that exhausts its configured attempts
 is recorded as `S11=1`, `Tot_Eff=0`; these RF values lie on the fixed
 hypervolume reference boundary, so an invalid small board gains no
-hypervolume. Infrastructure failures that leave Princess tasks pending or
-running do not consume points and keep the batch resumable.
+hypervolume. A geometry-preflight rejection intentionally has only a manifest,
+not CST curves; its embedded penalty objectives are nevertheless retained as
+training data. A manifest that has neither complete curves nor penalty
+objectives is treated as genuinely incomplete and skipped. Infrastructure
+failures that leave Princess tasks pending or running do not consume points
+and keep the batch resumable.
 
 First validate the sources and create the local plan without starting CST:
 
@@ -100,9 +109,9 @@ the same Princess run id and frozen worklist.
 C:\Users\David\.conda\envs\cstpy\python.exe `
   scripts\optimization\run_qlogehvi.py `
   --source results\raw\doe-round1-lhs-512 `
-  --source results\raw\another-compatible-run `
-  --output results\raw\msabp-qlogehvi-gpu-001 `
-  --budget 200 --q 4
+  --source results\raw\msabp-qlogehvi-gpu-001 `
+  --output results\raw\msabp-qlogehvi-area-scaled-001 `
+  --budget 100 --q 4
 ```
 
 `--stop-after-proposal` asks coconutg2 for one proposal and persists the

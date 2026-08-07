@@ -31,6 +31,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 # IDE / F5 configuration.
 F5_SOURCE_DIRECTORIES = (
     REPOSITORY_ROOT / "results" / "raw" / "doe-round1-lhs-512",
+    REPOSITORY_ROOT / "results" / "raw" / "msabp-qlogehvi-gpu-001",
 )
 F5_BAND_GHZ = (3.1, 4.8)
 F5_OUTPUT_FIGURE = (
@@ -72,6 +73,10 @@ class CaseMetrics:
     s11_band_points: int
     tot_eff_band_points: int
     is_reference: bool
+
+
+class IncompleteCaseError(FileNotFoundError):
+    """A manifest exists, but one or more required solver curves do not."""
 
 
 def read_cst_1d_curve(path: Path) -> tuple[np.ndarray, np.ndarray]:
@@ -149,9 +154,19 @@ def case_metrics_from_manifest(
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
     case_directory = manifest_path.parent
-    s11_frequency, s11_db = read_cst_1d_curve(case_directory / S11_FILENAME)
+    required_curves = (
+        case_directory / S11_FILENAME,
+        case_directory / TOTAL_EFFICIENCY_FILENAME,
+    )
+    missing_curves = [path.name for path in required_curves if not path.is_file()]
+    if missing_curves:
+        raise IncompleteCaseError(
+            "Manifest-only/incomplete case is missing required curve(s): "
+            + ", ".join(missing_curves)
+        )
+    s11_frequency, s11_db = read_cst_1d_curve(required_curves[0])
     eff_frequency, total_efficiency_db = read_cst_1d_curve(
-        case_directory / TOTAL_EFFICIENCY_FILENAME
+        required_curves[1]
     )
     s11_band = values_in_band(s11_frequency, s11_db, band_ghz)
     efficiency_band = values_in_band(
@@ -216,6 +231,9 @@ def collect_metrics(
                     source_directory=source_directory,
                     band_ghz=band_ghz,
                 )
+            except IncompleteCaseError as exc:
+                skipped.append(f"{resolved_manifest}: {type(exc).__name__}: {exc}")
+                continue
             except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
                 message = f"{resolved_manifest}: {type(exc).__name__}: {exc}"
                 if not skip_invalid_cases:
@@ -410,7 +428,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skip-invalid-cases",
         action="store_true",
-        help="Report and skip malformed/incomplete cases instead of failing.",
+        help=(
+            "Report and skip malformed cases instead of failing. Cases missing "
+            "S11.csv or Tot_Eff.csv are always skipped automatically."
+        ),
     )
     parser.add_argument(
         "--show",

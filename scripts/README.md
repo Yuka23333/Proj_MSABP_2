@@ -15,7 +15,9 @@
 `postprocessing/plot_doe_pareto_3d.py` 可递归读取一个或多个 Princess
 结果目录，按指定频带汇总基板总面积、带内最大 S11 和带内平均
 Tot_Eff，并生成带参考点和采样非支配解集标记的三维散点图。参考点不参与
-采样 Pareto 集的计算；当前 Tot_Eff 指标对导出的 dB 样本做算术平均。
+采样 Pareto 集的计算；当前 Tot_Eff 指标对导出的 dB 样本做算术平均。只有
+`manifest.json`、缺少 `S11.csv` 或 `Tot_Eff.csv` 的未完成算例会自动跳过并计入
+终端的 `skipped` 统计；其它损坏数据默认仍会明确报错。
 
 在 IDE 中按 F5 时修改脚本顶部的 `F5_*` 常量。命令行可重复传入来源目录：
 

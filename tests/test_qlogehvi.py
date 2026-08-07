@@ -103,7 +103,10 @@ def test_penalty_values_lie_on_rf_reference_boundary() -> None:
 
     assert reference[0] == -qlogehvi.PENALTY_WORST_S11
     assert reference[1] == qlogehvi.PENALTY_MEAN_TOT_EFF
-    assert reference[2] < -qlogehvi.maximum_substrate_area(input_space)
+    assert reference[2] == -1.0
+    assert qlogehvi.area_reference_mm2(input_space) == pytest.approx(
+        1.01 * qlogehvi.maximum_substrate_area(input_space)
+    )
 
 
 def test_collect_observations_merges_sources_and_penalty_sidecar(
@@ -141,6 +144,63 @@ def test_collect_observations_merges_sources_and_penalty_sidecar(
     assert penalized[qlogehvi.MEAN_TOT_EFF_COLUMN] == 0.0
 
 
+def test_collect_observations_keeps_manifest_only_preflight_penalty(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    case_directory = source / "case_rejected"
+    case_directory.mkdir(parents=True)
+    payload = qlogehvi.penalty_manifest_payload(
+        case_id="rejected",
+        parameters=_default_parameters(),
+        failure_stage="geometry_preflight",
+        failure_message="invalid sampled geometry",
+        band_ghz=(3.1, 4.8),
+    )
+    (case_directory / "manifest.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+
+    observations = qlogehvi.collect_observations(
+        [source], band_ghz=(3.1, 4.8)
+    )
+
+    assert len(observations) == 1
+    assert bool(observations.iloc[0]["is_penalty"])
+    assert observations.iloc[0][qlogehvi.WORST_S11_COLUMN] == 1.0
+    assert observations.iloc[0][qlogehvi.MEAN_TOT_EFF_COLUMN] == 0.0
+
+
+def test_collect_observations_skips_only_genuinely_incomplete_manifest(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    _write_completed_case(source, "complete")
+    incomplete_directory = source / "case_incomplete"
+    incomplete_directory.mkdir()
+    (incomplete_directory / "manifest.json").write_text(
+        json.dumps(
+            {
+                "case_id": "incomplete",
+                "status": "completed",
+                "parameters": _default_parameters(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    skipped: list[str] = []
+
+    observations = qlogehvi.collect_observations(
+        [source],
+        band_ghz=(3.1, 4.8),
+        skipped_incomplete=skipped,
+    )
+
+    assert observations["case_id"].tolist() == ["complete"]
+    assert len(skipped) == 1
+    assert "missing optimization curve" in skipped[0]
+
+
 def test_training_arrays_prefer_completed_duplicate_over_penalty() -> None:
     input_space = _input_space()
     parameters = _default_parameters()
@@ -167,8 +227,32 @@ def test_training_arrays_prefer_completed_duplicate_over_penalty() -> None:
 
     assert train_x.shape == (1, 23)
     assert train_y_rf.tolist() == [[-0.2, 0.8]]
-    assert train_y_full.tolist() == [[-0.2, 0.8, -2720.2]]
+    expected_scaled_area = 2720.2 / qlogehvi.area_reference_mm2(input_space)
+    assert train_y_full.tolist() == [[-0.2, 0.8, -expected_scaled_area]]
     assert bool(aggregate.iloc[0]["has_completed_result"])
+
+
+def test_new_plan_records_fixed_area_scale_contract(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    config = run_qlogehvi.CampaignConfig(
+        plan_id="scaled-area-plan",
+        source_directories=(source,),
+        output_directory=tmp_path / "target",
+        total_budget=4,
+        device_ids=("maid-a",),
+    )
+    input_space = _input_space()
+
+    plan = run_qlogehvi._plan_payload(config, input_space)
+    objective = plan["objectives"][2]
+
+    assert plan["schema_version"] == 3
+    assert objective["area_reference_mm2"] == pytest.approx(
+        qlogehvi.area_reference_mm2(input_space)
+    )
+    assert objective["reference_minimize"] == 1.0
+    assert objective["reference_maximize"] == -1.0
 
 
 def test_preflight_default_candidate_is_valid() -> None:

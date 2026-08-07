@@ -46,12 +46,13 @@ from scripts.automation import antenna_sampler  # noqa: E402
 
 
 # IDE / F5 campaign settings.
-F5_PLAN_ID = "msabp-qlogehvi-gpu-001"
+F5_PLAN_ID = "msabp-qlogehvi-area-scaled-001"
 F5_SOURCE_DIRECTORIES = (
     REPOSITORY_ROOT / "results" / "raw" / "doe-round1-lhs-512",
+    REPOSITORY_ROOT / "results" / "raw" / "msabp-qlogehvi-gpu-001",
 )
 F5_OUTPUT_DIRECTORY = REPOSITORY_ROOT / "results" / "raw" / F5_PLAN_ID
-F5_TOTAL_BUDGET = 200
+F5_TOTAL_BUDGET = 100
 F5_Q = 4
 F5_BAND_GHZ = (3.1, 4.8)
 F5_DEVICE_IDS = ("convallariag5", "coconutg2")
@@ -70,7 +71,7 @@ PLAN_FILENAME = "optimization_plan.json"
 STATE_FILENAME = "optimization_state.json"
 CONTROL_DIRECTORY_NAME = "_qlogehvi"
 OBSERVATIONS_FILENAME = "observations.csv"
-PLAN_SCHEMA_VERSION = 2
+PLAN_SCHEMA_VERSION = 3
 STATE_SCHEMA_VERSION = 1
 
 
@@ -248,6 +249,12 @@ def _plan_payload(config: CampaignConfig, input_space: qlogehvi.InputSpace) -> d
                 "direction": "minimize",
                 "model": "exact_deterministic_formula",
                 "posterior_variance": 0.0,
+                "acquisition_transform": (
+                    "substrate_area_mm2 / area_reference_mm2"
+                ),
+                "area_reference_mm2": qlogehvi.area_reference_mm2(input_space),
+                "reference_minimize": 1.0,
+                "reference_maximize": -1.0,
             },
         ],
         "proposal_settings": asdict(config.proposal),
@@ -359,14 +366,25 @@ def actual_sources(config: CampaignConfig) -> tuple[Path, ...]:
 
 
 def refresh_observations(config: CampaignConfig) -> pd.DataFrame:
+    skipped_incomplete: list[str] = []
     observations = qlogehvi.collect_observations(
         actual_sources(config),
         band_ghz=config.band_ghz,
+        skipped_incomplete=skipped_incomplete,
     )
     destination = (
         config.output_directory / CONTROL_DIRECTORY_NAME / OBSERVATIONS_FILENAME
     )
     _atomic_write_csv(observations, destination)
+    if skipped_incomplete:
+        examples = "; ".join(skipped_incomplete[:3])
+        suffix = "" if len(skipped_incomplete) <= 3 else "; ..."
+        print(
+            "[qLogEHVI] skipped "
+            f"{len(skipped_incomplete)} incomplete manifest(s) without "
+            f"trainable curves or penalty objectives: {examples}{suffix}",
+            flush=True,
+        )
     return observations
 
 

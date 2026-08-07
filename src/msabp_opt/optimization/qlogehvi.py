@@ -36,6 +36,7 @@ PARAMETER_COLUMNS: tuple[str, ...] = ()
 WORST_S11_COLUMN = "worst_s11_linear_amplitude"
 MEAN_TOT_EFF_COLUMN = "mean_total_efficiency_linear"
 AREA_COLUMN = "substrate_area_mm2"
+AREA_REFERENCE_MARGIN = 1.01
 PENALTY_WORST_S11 = 1.0
 PENALTY_MEAN_TOT_EFF = 0.0
 
@@ -103,6 +104,10 @@ class ProposalResult:
     raw_values: np.ndarray
     acquisition_values: tuple[float, ...]
     diagnostics: dict[str, Any]
+
+
+class IncompleteObservationError(ValueError):
+    """A case manifest exists, but it is not yet a trainable observation."""
 
 
 def parameter_columns() -> tuple[str, ...]:
@@ -328,20 +333,32 @@ def parse_case_manifest(
             optimization.get("tot_eff_samples_removed_above_one", 0)
         )
     elif status == "completed":
+        s11_path = _artifact_path(manifest, case_directory, "s11", S11_FILENAME)
+        tot_eff_path = _artifact_path(
+            manifest,
+            case_directory,
+            "tot_eff",
+            TOT_EFF_FILENAME,
+        )
+        missing_artifacts = [
+            path.name for path in (s11_path, tot_eff_path) if not path.is_file()
+        ]
+        if missing_artifacts:
+            raise IncompleteObservationError(
+                "completed manifest is missing optimization curve(s) "
+                f"{missing_artifacts}: {manifest_path}"
+            )
         worst_s11, mean_efficiency, efficiency_kept, efficiency_removed = (
             rf_objectives_from_curves(
-                _artifact_path(manifest, case_directory, "s11", S11_FILENAME),
-                _artifact_path(
-                    manifest,
-                    case_directory,
-                    "tot_eff",
-                    TOT_EFF_FILENAME,
-                ),
+                s11_path,
+                tot_eff_path,
                 band_ghz=band_ghz,
             )
         )
     else:
-        raise ValueError(f"unsupported manifest status {status!r}: {manifest_path}")
+        raise IncompleteObservationError(
+            f"manifest status {status!r} is not a terminal observation: {manifest_path}"
+        )
 
     if not 0.0 <= worst_s11 <= 1.0:
         raise ValueError(f"worst S11 must be in [0,1]: {manifest_path}")
@@ -379,6 +396,7 @@ def collect_observations(
     source_roots: Sequence[str | Path],
     *,
     band_ghz: tuple[float, float],
+    skipped_incomplete: list[str] | None = None,
 ) -> pd.DataFrame:
     records: list[dict[str, Any]] = []
     seen: set[Path] = set()
@@ -393,13 +411,17 @@ def collect_observations(
             if resolved in seen:
                 continue
             seen.add(resolved)
-            records.append(
-                parse_case_manifest(
+            try:
+                record = parse_case_manifest(
                     resolved,
                     source_root=source_root,
                     band_ghz=band_ghz,
                 )
-            )
+            except IncompleteObservationError as exc:
+                if skipped_incomplete is not None:
+                    skipped_incomplete.append(str(exc))
+                continue
+            records.append(record)
     if not records:
         raise ValueError("no completed or penalized observations were found")
     frame = pd.DataFrame.from_records(records)
@@ -412,7 +434,7 @@ def training_arrays(
     observations: pd.DataFrame,
     input_space: InputSpace,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame]:
-    """Aggregate exact duplicate inputs and produce unstandardized objectives."""
+    """Aggregate duplicates and scale exact area by its fixed reference."""
 
     raw_x = observations.loc[:, input_space.names].to_numpy(dtype=float)
     unit_x = input_space.normalize(raw_x)
@@ -451,7 +473,8 @@ def training_arrays(
     train_y_full = np.column_stack(
         (
             train_y_rf,
-            -aggregate[AREA_COLUMN].to_numpy(dtype=float),
+            -aggregate[AREA_COLUMN].to_numpy(dtype=float)
+            / area_reference_mm2(input_space),
         )
     )
     return train_x, train_y_rf, train_y_full, aggregate
@@ -461,11 +484,17 @@ def maximum_substrate_area(input_space: InputSpace) -> float:
     return substrate_dimensions_from_array(input_space.upper, input_space)[2]
 
 
+def area_reference_mm2(input_space: InputSpace) -> float:
+    """Return the fixed physical area represented by scaled area value 1."""
+
+    return AREA_REFERENCE_MARGIN * maximum_substrate_area(input_space)
+
+
 def reference_point(input_space: InputSpace) -> np.ndarray:
     """A fixed maximization reference; penalty RF values lie on its boundary."""
 
     return np.asarray(
-        [-PENALTY_WORST_S11, PENALTY_MEAN_TOT_EFF, -1.01 * maximum_substrate_area(input_space)],
+        [-PENALTY_WORST_S11, PENALTY_MEAN_TOT_EFF, -1.0],
         dtype=float,
     )
 
@@ -845,6 +874,11 @@ def propose_qlogehvi_from_training_arrays(
         device=device,
     )
     index = {name: input_space.names.index(name) for name in input_space.names}
+    area_scale = torch.as_tensor(
+        area_reference_mm2(input_space),
+        dtype=dtype,
+        device=device,
+    )
     base_objective = runtime["MCMultiOutputObjective"]
 
     class ExactAreaObjective(base_objective):
@@ -863,7 +897,7 @@ def propose_qlogehvi_from_training_arrays(
                 + raw[..., index["PATCH_BRICK_4_MARGIN"]]
                 + 15.0
             )
-            negative_area = -(width * height).unsqueeze(-1)
+            negative_area = -(width * height / area_scale).unsqueeze(-1)
             while negative_area.dim() < samples.dim():
                 negative_area = negative_area.unsqueeze(0)
             negative_area = negative_area.expand(*samples.shape[:-1], 1)
@@ -964,8 +998,13 @@ def propose_qlogehvi_from_training_arrays(
             "gp_fit_seconds": gp_fit_seconds,
             "acquisition_seconds": acquisition_seconds,
             "gp_outputs": ["negative_worst_s11", MEAN_TOT_EFF_COLUMN],
-            "deterministic_output": "negative_substrate_area_mm2",
-            "output_standardization": False,
+            "deterministic_output": "negative_scaled_substrate_area",
+            "area_reference_mm2": float(area_reference_mm2(input_space)),
+            "area_reference_minimize": 1.0,
+            "output_scaling": {
+                "rf": "none",
+                "area": "substrate_area_mm2 / area_reference_mm2",
+            },
             "reference_point_maximize": ref.tolist(),
             "nearest_observation_distances": nearest.tolist(),
             "fit_status": fit_status,

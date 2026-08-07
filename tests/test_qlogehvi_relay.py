@@ -12,32 +12,32 @@ from msabp_opt.simulation.distributed.config import DeviceConfig, LaunchMode
 
 
 def _input_space() -> qlogehvi.InputSpace:
-    return qlogehvi.InputSpace(
-        names=("x", "y"),
-        lower=np.asarray([0.0, 10.0]),
-        upper=np.asarray([2.0, 20.0]),
+    from scripts.automation import antenna_sampler
+
+    return qlogehvi.input_space_from_sampling_config(
+        antenna_sampler.DEFAULT_CONFIG_PATH
     )
 
 
 def _observations() -> pd.DataFrame:
+    input_space = _input_space()
+
+    def record(raw: np.ndarray, *, is_penalty: bool) -> dict[str, object]:
+        parameters = dict(zip(input_space.names, raw, strict=True))
+        return {
+            **parameters,
+            "is_penalty": is_penalty,
+            qlogehvi.WORST_S11_COLUMN: 1.0 if is_penalty else 0.5,
+            qlogehvi.MEAN_TOT_EFF_COLUMN: 0.0 if is_penalty else 0.7,
+            qlogehvi.AREA_COLUMN: qlogehvi.substrate_dimensions_from_values(
+                parameters
+            )[2],
+        }
+
     return pd.DataFrame(
         [
-            {
-                "x": 0.0,
-                "y": 10.0,
-                "is_penalty": False,
-                qlogehvi.WORST_S11_COLUMN: 0.5,
-                qlogehvi.MEAN_TOT_EFF_COLUMN: 0.7,
-                qlogehvi.AREA_COLUMN: 100.0,
-            },
-            {
-                "x": 2.0,
-                "y": 20.0,
-                "is_penalty": True,
-                qlogehvi.WORST_S11_COLUMN: 1.0,
-                qlogehvi.MEAN_TOT_EFF_COLUMN: 0.0,
-                qlogehvi.AREA_COLUMN: 200.0,
-            },
+            record(input_space.lower, is_penalty=False),
+            record(input_space.upper, is_penalty=True),
         ]
     )
 
@@ -64,7 +64,10 @@ def test_request_contains_only_compact_training_arrays() -> None:
     assert payload["compute"] == {"device": "cuda", "dtype": "float64"}
     assert len(payload["implementation"]["qlogehvi_source_sha256"]) == 64
     assert len(payload["implementation"]["proposal_relay_source_sha256"]) == 64
-    assert payload["training"]["x_unit"] == [[0.0, 0.0], [1.0, 1.0]]
+    assert payload["training"]["x_unit"] == [
+        [0.0] * len(_input_space().names),
+        [1.0] * len(_input_space().names),
+    ]
     assert payload["training"]["summary"]["penalty_observations"] == 1
     serialized = json.dumps(payload)
     assert "source_root" not in serialized

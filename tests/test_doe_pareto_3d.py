@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import matplotlib
-import numpy as np
 import pandas as pd
 
 matplotlib.use("Agg")
@@ -103,6 +102,41 @@ def test_multiple_sources_reference_exclusion_and_metric_reduction(
     assert bool(sample["is_pareto"])
     assert bool(origin["is_reference"])
     assert not bool(origin["is_pareto"])
+
+
+def test_manifest_only_case_is_skipped_without_skip_invalid_flag(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "run"
+    _write_case(
+        source,
+        "case_complete",
+        case_id="complete",
+        area=100.0,
+        s11=[(3.1, -10.0), (4.8, -5.0)],
+        efficiency=[(3.1, -3.0), (4.8, -2.0)],
+    )
+    incomplete = source / "case_manifest_only"
+    incomplete.mkdir(parents=True)
+    (incomplete / "manifest.json").write_text(
+        json.dumps(
+            {
+                "case_id": "manifest-only",
+                "geometry": {"substrate_area_mm2": 90.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    frame, skipped = plot_doe_pareto_3d.collect_metrics(
+        [source],
+        band_ghz=(3.1, 4.8),
+    )
+
+    assert frame["case_id"].tolist() == ["complete"]
+    assert len(skipped) == 1
+    assert "case_manifest_only" in skipped[0]
+    assert "S11.csv, Tot_Eff.csv" in skipped[0]
 
 
 def test_plot_saves_headless_figure(tmp_path: Path) -> None:
