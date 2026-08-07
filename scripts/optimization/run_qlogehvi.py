@@ -225,11 +225,9 @@ def _plan_payload(config: CampaignConfig, input_space: qlogehvi.InputSpace) -> d
             ),
         },
         "software": {
-            "python": platform.python_version(),
-            "torch": package_version("torch"),
-            "botorch": package_version("botorch"),
-            "gpytorch": package_version("gpytorch"),
-            "ninja": package_version("ninja"),
+            "controller_python": platform.python_version(),
+            "controller_pandas": package_version("pandas"),
+            "proposal_runtime": "recorded_in_each_batch_diagnostics",
         },
         "objectives": [
             {

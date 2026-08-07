@@ -8,8 +8,10 @@ fit and qLogEHVI proposal require the dedicated optimization environment.
 from __future__ import annotations
 
 import json
+import importlib.metadata
 import math
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -925,12 +927,21 @@ def propose_qlogehvi_from_training_arrays(
     device_label = str(device)
     cuda_name = None
     cuda_capability = None
+    cuda_runtime = None
     if device.type == "cuda":
         cuda_index = (
             device.index if device.index is not None else torch.cuda.current_device()
         )
         cuda_name = torch.cuda.get_device_name(cuda_index)
         cuda_capability = list(torch.cuda.get_device_capability(cuda_index))
+        cuda_runtime = torch.version.cuda
+
+    def package_version(name: str) -> str | None:
+        try:
+            return importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            return None
+
     return ProposalResult(
         unit_values=unit_values,
         raw_values=raw_values,
@@ -961,5 +972,13 @@ def propose_qlogehvi_from_training_arrays(
             "replicate_groups": int(summary.get("replicate_groups", 0)),
             "cuda_device_name": cuda_name,
             "cuda_capability": cuda_capability,
+            "cuda_runtime_version": cuda_runtime,
+            "software": {
+                "python": platform.python_version(),
+                "torch": package_version("torch"),
+                "botorch": package_version("botorch"),
+                "gpytorch": package_version("gpytorch"),
+                "ninja": package_version("ninja"),
+            },
         },
     )

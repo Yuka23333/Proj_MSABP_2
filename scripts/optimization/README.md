@@ -55,6 +55,9 @@ The two roles on `coconutg2` are independent processes and environments:
 `bocuda` only calculates BO candidates, while `maid` controls local CST. The
 GPU worker never owns the budget, reads CST artifacts, or writes final case
 results. The Princess host remains the only campaign state authority.
+The `bocuda` environment must contain `numpy`, `pandas`, `torch`, `botorch`,
+`gpytorch`, and `ninja`; the smoke-tested interpreter is
+`C:\Users\telecom\miniforge3\envs\bocuda\python.exe`.
 
 Two fixed-noise `SingleTaskGP` outputs model the unstandardized linear RF
 objectives. The third acquisition output is exact negative substrate area,
@@ -124,6 +127,12 @@ objective arrays, bounds, settings, and summary counts are transferred. A
 SHA-256 request identity is embedded in the remote filenames and response, so
 an interrupted retry can safely reuse an already completed proposal without
 creating a second batch.
+The request also fingerprints the normalized qLogEHVI and relay Python sources;
+a GPU host on a different Git revision is rejected instead of silently reusing
+or producing candidates with different code.
+Each completed batch records the actual remote Python, Torch, BoTorch,
+GPyTorch, Ninja, CUDA runtime, GPU name, and compute capability in proposal
+diagnostics; the plan's software block describes only the local controller.
 
 On Windows the GPU worker adds the active Conda environment's `Scripts`
 directory to PATH for `ninja`, discovers Visual Studio Build Tools with

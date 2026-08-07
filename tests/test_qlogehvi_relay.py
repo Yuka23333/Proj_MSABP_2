@@ -62,6 +62,8 @@ def test_request_contains_only_compact_training_arrays() -> None:
 
     assert payload["iteration"] == 3
     assert payload["compute"] == {"device": "cuda", "dtype": "float64"}
+    assert len(payload["implementation"]["qlogehvi_source_sha256"]) == 64
+    assert len(payload["implementation"]["proposal_relay_source_sha256"]) == 64
     assert payload["training"]["x_unit"] == [[0.0, 0.0], [1.0, 1.0]]
     assert payload["training"]["summary"]["penalty_observations"] == 1
     serialized = json.dumps(payload)
@@ -101,6 +103,23 @@ def test_run_request_passes_cuda_and_float64_arrays(monkeypatch) -> None:
     assert captured["kwargs"]["device_name"] == "cuda:0"
     assert captured["kwargs"]["iteration"] == 4
     assert captured["train_x"].dtype == np.float64
+
+
+def test_request_rejects_different_worker_implementation() -> None:
+    request = proposal_relay.build_request_payload(
+        _observations(),
+        _input_space(),
+        settings=qlogehvi.ProposalSettings(q=1),
+        iteration=0,
+    )
+    request["implementation"]["qlogehvi_source_sha256"] = "0" * 64
+
+    try:
+        proposal_relay.run_request_payload(request)
+    except RuntimeError as exc:
+        assert "same Git commit" in str(exc)
+    else:
+        raise AssertionError("mismatched worker implementation was accepted")
 
 
 def test_request_file_is_idempotent(monkeypatch, tmp_path: Path) -> None:

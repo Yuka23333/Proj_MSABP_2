@@ -83,6 +83,13 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_python_source(path: str | Path) -> str:
+    """Hash Python source independent of a Windows checkout's line endings."""
+
+    text = Path(path).read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def input_space_from_payload(payload: Mapping[str, Any]) -> qlogehvi.InputSpace:
     names = payload.get("parameter_names")
     lower = payload.get("lower")
@@ -115,6 +122,10 @@ def build_request_payload(
     return {
         "schema_version": REQUEST_SCHEMA_VERSION,
         "algorithm": "qLogExpectedHypervolumeImprovement",
+        "implementation": {
+            "qlogehvi_source_sha256": sha256_python_source(qlogehvi.__file__),
+            "proposal_relay_source_sha256": sha256_python_source(__file__),
+        },
         "iteration": int(iteration),
         "compute": {"device": str(compute_device), "dtype": "float64"},
         "input_space": input_space.to_dict(),
@@ -146,6 +157,16 @@ def run_request_payload(payload: Mapping[str, Any]) -> qlogehvi.ProposalResult:
         raise ValueError("unsupported qLogEHVI proposal request schema")
     if payload.get("algorithm") != "qLogExpectedHypervolumeImprovement":
         raise ValueError("unsupported proposal algorithm")
+    implementation = _mapping(payload.get("implementation"), "implementation")
+    expected_implementation = {
+        "qlogehvi_source_sha256": sha256_python_source(qlogehvi.__file__),
+        "proposal_relay_source_sha256": sha256_python_source(__file__),
+    }
+    if dict(implementation) != expected_implementation:
+        raise RuntimeError(
+            "proposal request implementation fingerprints do not match this worker; "
+            "pull the same Git commit on both hosts"
+        )
     compute = _mapping(payload.get("compute"), "compute")
     if compute.get("dtype") != "float64":
         raise ValueError("GPU proposal requests must use float64")
