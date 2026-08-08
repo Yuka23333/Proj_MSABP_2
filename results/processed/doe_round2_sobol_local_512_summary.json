@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "round_id": "doe-round2-sobol-local-512",
+  "method": "sobol",
+  "seed": 20260808,
+  "independent_variable_count": 23,
+  "candidate_count": 512,
+  "candidate_design_verification": "sobol_power_of_two_unique",
+  "candidate_lhs_stratification_verified": false,
+  "accepted_sample_count": 499,
+  "accepted_lhs_count": null,
+  "origin_included": false,
+  "origin_sample_id": null,
+  "accepted_count": 499,
+  "worklist_count": 499,
+  "rejected_count": 13,
+  "sampling_acceptance_fraction": 0.974609375,
+  "lhs_acceptance_fraction": null,
+  "rejection_reasons": {
+    "ValueError: producer reported invalid exported polygon(s): Patch": 12,
+    "ValueError: producer reported invalid exported polygon(s): Slot": 1
+  },
+  "curve_intersection_summary": {
+    "sample_count": 512,
+    "geometry_valid_count": 499,
+    "geometry_invalid_count": 13,
+    "intersection_check_completed_count": 512,
+    "intersection_check_failed_count": 0,
+    "samples_with_non_bottom_intersection": 512,
+    "samples_without_non_bottom_intersection": 0,
+    "valid_samples_with_non_bottom_intersection": 499,
+    "valid_samples_without_non_bottom_intersection": 0,
+    "pair_counts": {
+      "Slot__Patch": 0,
+      "Slot__CPW_Feed_Pin": 512,
+      "Patch__CPW_Feed_Pin": 0
+    },
+    "pair_relation_counts": {
+      "crosses": {
+        "Slot__Patch": 0,
+        "Slot__CPW_Feed_Pin": 0,
+        "Patch__CPW_Feed_Pin": 0
+      },
+      "overlaps": {
+        "Slot__Patch": 0,
+        "Slot__CPW_Feed_Pin": 512,
+        "Patch__CPW_Feed_Pin": 0
+      },
+      "touches": {
+        "Slot__Patch": 0,
+        "Slot__CPW_Feed_Pin": 0,
+        "Patch__CPW_Feed_Pin": 0
+      }
+    },
+    "valid_geometry_pair_counts": {
+      "Slot__Patch": 0,
+      "Slot__CPW_Feed_Pin": 499,
+      "Patch__CPW_Feed_Pin": 0
+    },
+    "ignored_contact": "pairwise boundary intersection on global bottom edge",
+    "sampling_method": "sobol",
+    "seed": 20260808,
+    "coordinate_quantum_mm": 0.01
+  },
+  "full_cst_model": {
+    "source_specs": [
+      "substrate",
+      "Patch",
+      "Slot",
+      "CPW_Feed_Pin",
+      "reflector",
+      "reflector connector clearance"
+    ],
+    "preflight_passed_count": 499,
+    "substrate_material": "Rogers AD 350A (lossy)",
+    "substrate_relative_permittivity": 3.5,
+    "substrate_thickness_mm": -4.7,
+    "dimension_ranges": {
+      "substrate_width_mm": {
+        "min": 63.78,
+        "max": 70.14
+      },
+      "substrate_height_mm": {
+        "min": 39.47,
+        "max": 41.68
+      },
+      "reflector_cutout_width_mm": {
+        "min": 48.74,
+        "max": 55.1
+      },
+      "reflector_cutout_depth_mm": {
+        "min": 0.5,
+        "max": 0.5
+      }
+    }
+  },
+  "outputs": {
+    "accepted_csv": {
+      "path": "data/samples/doe_round2_sobol_local_512.csv",
+      "sha256": "f709bffa43f7ea98d20e487a27f09b4abfdbe2cc068f02f00df14855dcfb9ec2"
+    },
+    "candidates_csv": {
+      "path": "data/samples/doe_round2_sobol_local_512_candidates.csv",
+      "sha256": "66dcb838481241c455fd146b9b2ad0a86614eab53ea162ba86d3222982bb1c29"
+    },
+    "rejected_csv": {
+      "path": "data/samples/doe_round2_sobol_local_512_rejected.csv",
+      "sha256": "92f16d08ad9c1fc8d083a75fb6b4823b3b68c56bf82c93bdf4c668040b690b0f"
+    }
+  }
+}

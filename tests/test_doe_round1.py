@@ -9,6 +9,14 @@ from scripts.geometry import shapely_antenna_model
 from scripts.optimization import prepare_doe_round1
 
 
+ROUND2_CONFIG_PATH = (
+    prepare_doe_round1.REPOSITORY_ROOT
+    / "configs"
+    / "optimization"
+    / "doe_round2_sobol_local_512.json"
+)
+
+
 def _valid_audit_row() -> dict[str, object]:
     return {
         **asdict(shapely_antenna_model.DEFAULT_PARAMETERS),
@@ -98,3 +106,35 @@ def test_latin_candidate_frame_occupies_every_one_dimensional_stratum() -> None:
     candidates.loc[1, "SLOT_MAIN_LENGTH"] = candidates.loc[0, "SLOT_MAIN_LENGTH"]
     with pytest.raises(ValueError, match="SLOT_MAIN_LENGTH"):
         prepare_doe_round1._verify_latin_hypercube(candidates, plan)
+
+
+def test_round2_sobol_uses_local_absolute_ranges_and_full_k_ranges() -> None:
+    round_config = prepare_doe_round1.load_round_config(ROUND2_CONFIG_PATH)
+    sampling = round_config["sampling"]
+    assert sampling == {
+        "method": "sobol",
+        "candidate_count": 512,
+        "seed": 20260808,
+        "include_origin": False,
+    }
+    base_config = antenna_sampler.load_sampling_config(
+        prepare_doe_round1.REPOSITORY_ROOT
+        / round_config["base_sampling_config"]
+    )
+    plan = antenna_sampler.resolve_sampling_plan(base_config)
+    assert plan.method == "sobol"
+    assert plan.n_samples == 512
+
+    for item in plan.resolved_parameters:
+        assert item.lower is not None
+        assert item.upper is not None
+        if item.spec.kind == "absolute":
+            assert item.lower == pytest.approx(0.95 * item.nominal)
+            assert item.upper == pytest.approx(1.05 * item.nominal)
+        else:
+            assert item.lower == 0.0
+            assert item.upper == 1.0
+
+    candidates = antenna_sampler.generate_parameter_frame(plan)
+    prepare_doe_round1._verify_sobol_design(candidates, plan)
+    assert len(candidates) == 512

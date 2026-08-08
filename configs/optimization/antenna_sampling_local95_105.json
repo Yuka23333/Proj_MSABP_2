@@ -1,0 +1,84 @@
+{
+  "schema_version": 2,
+  "sampling": {
+    "method": "sobol",
+    "n_samples": 512,
+    "seed": 20260808,
+    "parameters": {
+      "SLOT_MAIN_LENGTH": {
+        "range": {"mode": "relative", "lower": -0.05, "upper": 0.05, "reference": "nominal"}
+      },
+      "SLOT_MAIN_HEIGHT": {
+        "range": {"mode": "relative", "lower": -0.05, "upper": 0.05, "reference": "nominal"}
+      },
+      "PATCH_BRICK_1_SIDE_MARGIN": {
+        "range": {"mode": "relative", "lower": -0.05, "upper": 0.05, "reference": "nominal"}
+      },
+      "PATCH_BRICK_1_TOP_MARGIN": {
+        "range": {"mode": "relative", "lower": -0.05, "upper": 0.05, "reference": "nominal"}
+      },
+      "PATCH_BRICK_3_BOTTOM_MARGIN": {
+        "range": {"mode": "relative", "lower": -0.05, "upper": 0.05, "reference": "nominal"}
+      },
+      "PATCH_BRICK_2_HEIGHT_MARGIN": {
+        "range": {"mode": "relative", "lower": -0.05, "upper": 0.05, "reference": "nominal"}
+      },
+      "PATCH_BRICK_4_MARGIN": {
+        "range": {"mode": "relative", "lower": -0.05, "upper": 0.05, "reference": "nominal"}
+      },
+      "UPPER_CORNER_NOTCH_1_K1": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "UPPER_CORNER_NOTCH_1_K2": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "UPPER_CORNER_EAR_1_K1": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "UPPER_CORNER_EAR_1_K2": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "LOWER_CORNER_NOTCH_1_K1": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "LOWER_CORNER_NOTCH_1_K2": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "LOWER_CORNER_EAR_1_K1": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "LOWER_CORNER_EAR_1_K2": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "LOWER_CORNER_EAR_2_K1": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "LOWER_CORNER_EAR_2_K2": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "BRANCH_UP_1_K": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "BRANCH_UP_1_K2": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "BRANCH_UP_1_K3": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "BRANCH_DOWN_1_K": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "BRANCH_DOWN_1_K2": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      },
+      "BRANCH_DOWN_1_K3": {
+        "range": {"mode": "absolute", "min": 0.0, "max": 1.0}
+      }
+    }
+  },
+  "geometry_policy": {
+    "coordinate_quantum_mm": 0.01,
+    "reject_self_intersection": true,
+    "allow_disconnected_conductor": false
+  }
+}

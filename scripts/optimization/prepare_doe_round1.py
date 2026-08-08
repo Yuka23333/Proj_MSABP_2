@@ -1,4 +1,4 @@
-"""Prepare the first 512-candidate Latin-hypercube CST DoE worklist."""
+"""Prepare a geometry-audited CST DoE worklist from a round config."""
 
 from __future__ import annotations
 
@@ -197,6 +197,35 @@ def _verify_latin_hypercube(
             )
 
 
+def _verify_sobol_design(
+    candidates: pd.DataFrame,
+    plan: antenna_sampler.SamplingPlan,
+) -> None:
+    """Verify the power-of-two Sobol design is unique and within its bounds."""
+
+    if plan.method != "sobol":
+        raise ValueError("Sobol verification requires method='sobol'")
+    if plan.n_samples.bit_count() != 1:
+        raise ValueError("Sobol candidate_count must be a power of two")
+    if len(candidates) != plan.n_samples:
+        raise ValueError("candidate frame length does not match the sampling plan")
+    sampled_names = [
+        item.spec.name
+        for item in plan.resolved_parameters
+        if item.effective_sample
+    ]
+    if candidates.loc[:, sampled_names].duplicated().any():
+        raise ValueError("Sobol design contains duplicate parameter rows")
+    for item in plan.resolved_parameters:
+        if not item.effective_sample:
+            continue
+        if item.lower is None or item.upper is None:
+            raise ValueError(f"sampled parameter {item.spec.name} has no range")
+        values = candidates[item.spec.name]
+        if not values.between(item.lower, item.upper, inclusive="both").all():
+            raise ValueError(f"Sobol parameter {item.spec.name} exceeds its bounds")
+
+
 def _atomic_write_csv(frame: pd.DataFrame, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -228,12 +257,15 @@ def prepare_round(
     sampling = _mapping(config["sampling"], "round config.sampling")
     eligibility = _mapping(config["eligibility"], "round config.eligibility")
     method = str(sampling.get("method", "latin")).lower()
-    if method != "latin":
-        raise ValueError("Round 1 sampling method must be 'latin'")
+    if method not in {"latin", "sobol"}:
+        raise ValueError("round sampling method must be 'latin' or 'sobol'")
     candidate_count = int(sampling.get("candidate_count", 512))
     if candidate_count <= 0:
         raise ValueError("candidate_count must be positive")
     seed = int(sampling.get("seed", 20260806))
+    include_origin = sampling.get("include_origin", True)
+    if not isinstance(include_origin, bool):
+        raise ValueError("round sampling.include_origin must be boolean")
     base_config_path = _repository_path(
         config["base_sampling_config"],
         "round config.base_sampling_config",
@@ -258,7 +290,10 @@ def prepare_round(
         method=method,
         seed=seed,
     )
-    _verify_latin_hypercube(candidates, plan)
+    if method == "latin":
+        _verify_latin_hypercube(candidates, plan)
+    else:
+        _verify_sobol_design(candidates, plan)
     candidates["doe_rejection_reason"] = [
         _initial_rejection_reason(
             row,
@@ -278,13 +313,9 @@ def prepare_round(
             )
 
     candidates["doe_eligible"] = candidates["doe_rejection_reason"].eq("")
-    candidates["doe_source"] = "lhs"
+    candidates["doe_source"] = method
     accepted_audit = candidates.loc[candidates["doe_eligible"]].copy()
     rejected = candidates.loc[~candidates["doe_eligible"]].copy()
-    origin_row, origin_dimensions = _build_origin_audit_row(
-        allowed_non_bottom_overlap_pairs=allowed_pairs,
-    )
-    model_dimensions.append(origin_dimensions)
     accepted_columns = (
         "sample_id",
         "doe_source",
@@ -293,9 +324,16 @@ def prepare_round(
         "geometry_error",
         "final_conductor_components",
     )
-    accepted_lhs = accepted_audit.loc[:, accepted_columns].copy()
-    origin = pd.DataFrame([origin_row]).loc[:, accepted_columns]
-    accepted = pd.concat((accepted_lhs, origin), ignore_index=True)
+    accepted_sampled = accepted_audit.loc[:, accepted_columns].copy()
+    if include_origin:
+        origin_row, origin_dimensions = _build_origin_audit_row(
+            allowed_non_bottom_overlap_pairs=allowed_pairs,
+        )
+        model_dimensions.append(origin_dimensions)
+        origin = pd.DataFrame([origin_row]).loc[:, accepted_columns]
+        accepted = pd.concat((accepted_sampled, origin), ignore_index=True)
+    else:
+        accepted = accepted_sampled.reset_index(drop=True)
 
     reason_counts = Counter(rejected["doe_rejection_reason"].astype(str))
     dimension_summary = (
@@ -321,14 +359,27 @@ def prepare_round(
         "seed": seed,
         "independent_variable_count": len(PARAMETER_COLUMNS),
         "candidate_count": int(len(candidates)),
-        "candidate_lhs_stratification_verified": True,
-        "accepted_lhs_count": int(len(accepted_lhs)),
-        "origin_included": True,
-        "origin_sample_id": "origin",
+        "candidate_design_verification": (
+            "one_per_1d_lhs_stratum" if method == "latin" else "sobol_power_of_two_unique"
+        ),
+        "candidate_lhs_stratification_verified": method == "latin",
+        "accepted_sample_count": int(len(accepted_sampled)),
+        "accepted_lhs_count": (
+            int(len(accepted_sampled)) if method == "latin" else None
+        ),
+        "origin_included": include_origin,
+        "origin_sample_id": "origin" if include_origin else None,
         "accepted_count": int(len(accepted)),
         "worklist_count": int(len(accepted)),
         "rejected_count": int(len(rejected)),
-        "lhs_acceptance_fraction": float(len(accepted_lhs) / len(candidates)),
+        "sampling_acceptance_fraction": float(
+            len(accepted_sampled) / len(candidates)
+        ),
+        "lhs_acceptance_fraction": (
+            float(len(accepted_sampled) / len(candidates))
+            if method == "latin"
+            else None
+        ),
         "rejection_reasons": dict(sorted(reason_counts.items())),
         "curve_intersection_summary": intersection_summary,
         "full_cst_model": {
@@ -417,7 +468,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         round_config_path=args.config,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
-    print(f"[doe-round1] accepted worklist={paths['accepted_csv']}")
+    print(f"[{summary['round_id']}] accepted worklist={paths['accepted_csv']}")
     return 0
 
 

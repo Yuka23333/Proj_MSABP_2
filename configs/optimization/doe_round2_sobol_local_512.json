@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "round_id": "doe-round2-sobol-local-512",
+  "base_sampling_config": "configs/optimization/antenna_sampling_local95_105.json",
+  "sampling": {
+    "method": "sobol",
+    "candidate_count": 512,
+    "seed": 20260808,
+    "include_origin": false
+  },
+  "eligibility": {
+    "require_individually_valid_curves": true,
+    "ignored_bottom_edge_contact": true,
+    "allowed_non_bottom_overlap_pairs": [
+      "Slot__CPW_Feed_Pin"
+    ]
+  },
+  "outputs": {
+    "accepted_csv": "data/samples/doe_round2_sobol_local_512.csv",
+    "candidates_csv": "data/samples/doe_round2_sobol_local_512_candidates.csv",
+    "rejected_csv": "data/samples/doe_round2_sobol_local_512_rejected.csv",
+    "summary_json": "results/processed/doe_round2_sobol_local_512_summary.json"
+  }
+}

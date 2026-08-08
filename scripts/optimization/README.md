@@ -26,6 +26,31 @@ The accepted worklist appends one `sample_id=origin` baseline row and records
 `doe_source=lhs/origin`. Rejected candidate IDs are intentionally not
 renumbered, so every accepted LHS row can be traced back to its original point.
 
+## Round 2: local-size 512-candidate Sobol design
+
+`doe_round2_sobol_local_512.json` keeps all sixteen K variables on `[0,1]`
+while restricting each of the seven absolute millimetre variables to
+`[0.95,1.05]` times its nominal value. The design is one reproducible,
+scrambled, power-of-two Sobol block with 512 candidates and no repeated origin
+row. Prepare and geometry-audit it with:
+
+```powershell
+python scripts\optimization\prepare_doe_round1.py `
+  --config configs\optimization\doe_round2_sobol_local_512.json
+```
+
+The current frozen design contains 499 simulation-eligible cases and 13
+rejected geometries. Start or resume its two-Maid Princess run with:
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\simulation\princess.py start `
+  --csv data\samples\doe_round2_sobol_local_512.csv `
+  --run-id doe-round2-sobol-local-512 `
+  --device convallariag5 `
+  --device coconutg2
+```
+
 ## Resumable qLogEHVI campaign
 
 `run_qlogehvi.py` uses the completed DoE and any additional repeated
