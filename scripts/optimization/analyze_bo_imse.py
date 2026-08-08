@@ -120,13 +120,14 @@ def _validate_unit_array(values: Any, *, columns: int, label: str) -> np.ndarray
 def collect_cumulative_training_stages(
     *,
     band_ghz: tuple[float, float] = (3.1, 4.8),
+    sampling_config: Path | None = None,
 ) -> tuple[qlogehvi.InputSpace, list[dict[str, Any]]]:
     """Collect the exact cumulative datasets used by the three comparisons."""
 
     from scripts.automation import antenna_sampler
 
     input_space = qlogehvi.input_space_from_sampling_config(
-        antenna_sampler.DEFAULT_CONFIG_PATH
+        sampling_config or antenna_sampler.DEFAULT_CONFIG_PATH
     )
     cumulative: list[pd.DataFrame] = []
     stages: list[dict[str, Any]] = []
@@ -163,13 +164,14 @@ def collect_cumulative_training_stages(
 def collect_doe_parity_training_stages(
     *,
     band_ghz: tuple[float, float] = (3.1, 4.8),
+    sampling_config: Path | None = None,
 ) -> tuple[qlogehvi.InputSpace, list[dict[str, Any]]]:
     """Split the stably ordered 498-row DoE into 1-based odd/even rows."""
 
     from scripts.automation import antenna_sampler
 
     input_space = qlogehvi.input_space_from_sampling_config(
-        antenna_sampler.DEFAULT_CONFIG_PATH
+        sampling_config or antenna_sampler.DEFAULT_CONFIG_PATH
     )
     doe_source = STAGE_DIRECTORIES[0][1]
     observations = qlogehvi.collect_observations(
@@ -207,13 +209,14 @@ def collect_source_demi_full_training_stages(
     source: Path,
     *,
     band_ghz: tuple[float, float] = (3.1, 4.8),
+    sampling_config: Path | None = None,
 ) -> tuple[qlogehvi.InputSpace, list[dict[str, Any]]]:
     """Compare stable odd/even halves and the full set from one result source."""
 
     from scripts.automation import antenna_sampler
 
     input_space = qlogehvi.input_space_from_sampling_config(
-        antenna_sampler.DEFAULT_CONFIG_PATH
+        sampling_config or antenna_sampler.DEFAULT_CONFIG_PATH
     )
     source = source.resolve()
     skipped: list[str] = []
@@ -319,17 +322,23 @@ def prepare_request(
     *,
     doe_parity_split: bool = False,
     demi_full_source: Path | None = None,
+    sampling_config: Path | None = None,
 ) -> Path:
     if doe_parity_split and demi_full_source is not None:
         raise ValueError("choose either --doe-parity-split or --demi-full-source")
     if demi_full_source is not None:
         input_space, stages = collect_source_demi_full_training_stages(
-            demi_full_source
+            demi_full_source,
+            sampling_config=sampling_config,
         )
     elif doe_parity_split:
-        input_space, stages = collect_doe_parity_training_stages()
+        input_space, stages = collect_doe_parity_training_stages(
+            sampling_config=sampling_config
+        )
     else:
-        input_space, stages = collect_cumulative_training_stages()
+        input_space, stages = collect_cumulative_training_stages(
+            sampling_config=sampling_config
+        )
     payload = build_request_payload(input_space, stages)
     _atomic_write_json(path, payload)
     for stage in stages:
@@ -649,6 +658,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         help="compare stable 1-based odd/even halves and the full source",
     )
+    parser.add_argument(
+        "--sampling-config",
+        type=Path,
+        help="sampling bounds used to normalize training and integration points",
+    )
     return parser.parse_args(argv)
 
 
@@ -664,6 +678,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.request.resolve(),
         doe_parity_split=args.doe_parity_split,
         demi_full_source=args.demi_full_source,
+        sampling_config=args.sampling_config,
     )
     if args.prepare_only:
         print(f"[IMSE] request: {request_path}", flush=True)
