@@ -203,6 +203,65 @@ def collect_doe_parity_training_stages(
     return input_space, stages
 
 
+def collect_source_demi_full_training_stages(
+    source: Path,
+    *,
+    band_ghz: tuple[float, float] = (3.1, 4.8),
+) -> tuple[qlogehvi.InputSpace, list[dict[str, Any]]]:
+    """Compare stable odd/even halves and the full set from one result source."""
+
+    from scripts.automation import antenna_sampler
+
+    input_space = qlogehvi.input_space_from_sampling_config(
+        antenna_sampler.DEFAULT_CONFIG_PATH
+    )
+    source = source.resolve()
+    skipped: list[str] = []
+    observations = qlogehvi.collect_observations(
+        [source],
+        band_ghz=band_ghz,
+        skipped_incomplete=skipped,
+    )
+    if observations.empty:
+        raise ValueError(f"no complete observations found in {source}")
+
+    partitions = (
+        ("demi_rows_odd_1based", observations.iloc[0::2]),
+        ("demi_rows_even_1based", observations.iloc[1::2]),
+        ("full", observations),
+    )
+    stages: list[dict[str, Any]] = []
+    for label, partition in partitions:
+        subset = partition.reset_index(drop=True)
+        if subset.empty:
+            raise ValueError(f"partition {label} is empty")
+        train_x, train_y_rf, _, aggregate = qlogehvi.training_arrays(
+            subset,
+            input_space,
+        )
+        stages.append(
+            {
+                "label": label,
+                "added_source": str(source),
+                "partition": (
+                    "stable observation order, 1-based row parity"
+                    if label != "full"
+                    else "all stable observations"
+                ),
+                "observations_raw": int(len(subset)),
+                "observations_distinct": int(len(train_x)),
+                "penalty_observations": int(subset["is_penalty"].sum()),
+                "replicate_groups": int((aggregate["replicate_count"] > 1).sum()),
+                "skipped_incomplete": skipped,
+                "first_case_id": str(subset.iloc[0]["case_id"]),
+                "last_case_id": str(subset.iloc[-1]["case_id"]),
+                "x_unit": train_x.tolist(),
+                "y_rf_maximize": train_y_rf.tolist(),
+            }
+        )
+    return input_space, stages
+
+
 def build_request_payload(
     input_space: qlogehvi.InputSpace,
     stages: Sequence[Mapping[str, Any]],
@@ -259,8 +318,15 @@ def prepare_request(
     path: Path = REQUEST_PATH,
     *,
     doe_parity_split: bool = False,
+    demi_full_source: Path | None = None,
 ) -> Path:
-    if doe_parity_split:
+    if doe_parity_split and demi_full_source is not None:
+        raise ValueError("choose either --doe-parity-split or --demi-full-source")
+    if demi_full_source is not None:
+        input_space, stages = collect_source_demi_full_training_stages(
+            demi_full_source
+        )
+    elif doe_parity_split:
         input_space, stages = collect_doe_parity_training_stages()
     else:
         input_space, stages = collect_cumulative_training_stages()
@@ -578,6 +644,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="compare stable 1-based odd/even rows of the initial DoE",
     )
+    parser.add_argument(
+        "--demi-full-source",
+        type=Path,
+        help="compare stable 1-based odd/even halves and the full source",
+    )
     return parser.parse_args(argv)
 
 
@@ -592,6 +663,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     request_path = prepare_request(
         args.request.resolve(),
         doe_parity_split=args.doe_parity_split,
+        demi_full_source=args.demi_full_source,
     )
     if args.prepare_only:
         print(f"[IMSE] request: {request_path}", flush=True)

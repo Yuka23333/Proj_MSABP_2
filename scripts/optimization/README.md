@@ -173,7 +173,9 @@ The JSON and tabular CSV outputs are written under
 request without contacting coconutg2, or `--summarize-only` to re-render an
 already retrieved response. `--doe-parity-split` instead divides the stable
 498-row DoE order into 1-based odd and even 249-row subsets and compares both
-subsets on the same integration points.
+subsets on the same integration points. `--demi-full-source PATH` compares the
+stable 1-based odd rows, even rows, and full observation set from any one result
+directory on that same fixed integration set.
 
 For each batch, the controller writes
 `_qlogehvi/batch_NNNN_proposal_request.json`, atomically uploads it, invokes
