@@ -1,0 +1,47 @@
+{
+  "schema_version": 2,
+  "sampling": {
+    "method": "latin",
+    "n_samples": 256,
+    "seed": 20260824,
+    "parameters": {
+      "SLOT_MAIN_LENGTH": {"sample": false},
+      "SLOT_MAIN_HEIGHT": {"sample": false},
+      "PATCH_BRICK_1_SIDE_MARGIN": {"sample": false},
+      "PATCH_BRICK_1_TOP_MARGIN": {"sample": false},
+      "PATCH_BRICK_3_BOTTOM_MARGIN": {"sample": false},
+      "PATCH_BRICK_2_HEIGHT_MARGIN": {"sample": false},
+      "PATCH_BRICK_4_MARGIN": {"sample": false},
+      "UPPER_CORNER_NOTCH_1_K1": {"sample": false},
+      "UPPER_CORNER_NOTCH_1_K2": {"sample": false},
+      "UPPER_CORNER_EAR_1_K1": {"sample": false},
+      "UPPER_CORNER_EAR_1_K2": {"sample": false},
+      "LOWER_CORNER_NOTCH_1_K1": {"sample": false},
+      "LOWER_CORNER_NOTCH_1_K2": {"sample": false},
+      "LOWER_CORNER_EAR_1_K1": {"sample": false},
+      "LOWER_CORNER_EAR_1_K2": {"sample": false},
+      "LOWER_CORNER_EAR_2_K1": {"sample": false},
+      "LOWER_CORNER_EAR_2_K2": {"sample": false},
+      "BRANCH_UP_1_K": {
+        "sample": true,
+        "range": {"mode": "absolute", "min": 0.05, "max": 1.0}
+      },
+      "BRANCH_UP_1_K2": {
+        "sample": true,
+        "range": {"mode": "absolute", "min": 0.05, "max": 1.0}
+      },
+      "BRANCH_UP_1_K3": {
+        "sample": true,
+        "range": {"mode": "absolute", "min": 0.05, "max": 1.0}
+      },
+      "BRANCH_DOWN_1_K": {"sample": false},
+      "BRANCH_DOWN_1_K2": {"sample": false},
+      "BRANCH_DOWN_1_K3": {"sample": false}
+    }
+  },
+  "geometry_policy": {
+    "coordinate_quantum_mm": 0.01,
+    "reject_self_intersection": true,
+    "allow_disconnected_conductor": false
+  }
+}

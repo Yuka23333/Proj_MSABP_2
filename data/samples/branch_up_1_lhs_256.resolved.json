@@ -1,0 +1,266 @@
+{
+  "schema_version": 2,
+  "method": "latin",
+  "n_samples": 256,
+  "seed": 20260824,
+  "geometry_policy": {
+    "coordinate_quantum_mm": 0.01,
+    "reject_self_intersection": true,
+    "allow_disconnected_conductor": false
+  },
+  "parameters": [
+    {
+      "name": "SLOT_MAIN_LENGTH",
+      "group": "absolute_mm",
+      "kind": "absolute",
+      "unit": "mm",
+      "nominal": 53.0,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "SLOT_MAIN_HEIGHT",
+      "group": "absolute_mm",
+      "kind": "absolute",
+      "unit": "mm",
+      "nominal": 2.0,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "PATCH_BRICK_1_SIDE_MARGIN",
+      "group": "absolute_mm",
+      "kind": "absolute",
+      "unit": "mm",
+      "nominal": 6.0,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "PATCH_BRICK_1_TOP_MARGIN",
+      "group": "absolute_mm",
+      "kind": "absolute",
+      "unit": "mm",
+      "nominal": 2.6,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "PATCH_BRICK_3_BOTTOM_MARGIN",
+      "group": "absolute_mm",
+      "kind": "absolute",
+      "unit": "mm",
+      "nominal": 2.0,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "PATCH_BRICK_2_HEIGHT_MARGIN",
+      "group": "absolute_mm",
+      "kind": "absolute",
+      "unit": "mm",
+      "nominal": 15.0,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "PATCH_BRICK_4_MARGIN",
+      "group": "absolute_mm",
+      "kind": "absolute",
+      "unit": "mm",
+      "nominal": 4.0,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "UPPER_CORNER_NOTCH_1_K1",
+      "group": "upper_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.6181818181818182,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "UPPER_CORNER_NOTCH_1_K2",
+      "group": "upper_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.9333333333333333,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "UPPER_CORNER_EAR_1_K1",
+      "group": "upper_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.4117647058823529,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "UPPER_CORNER_EAR_1_K2",
+      "group": "upper_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.07142857142857142,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "LOWER_CORNER_NOTCH_1_K1",
+      "group": "lower_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.7745454545454545,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "LOWER_CORNER_NOTCH_1_K2",
+      "group": "lower_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.7058823529411765,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "LOWER_CORNER_EAR_1_K1",
+      "group": "lower_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.2347417840375587,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "LOWER_CORNER_EAR_1_K2",
+      "group": "lower_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.6666666666666666,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "LOWER_CORNER_EAR_2_K1",
+      "group": "lower_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.24539877300613497,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "LOWER_CORNER_EAR_2_K2",
+      "group": "lower_corner_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.25,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "BRANCH_UP_1_K",
+      "group": "branch_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.5,
+      "sample": true,
+      "lower": 0.05,
+      "upper": 1.0,
+      "range_source": "parameter"
+    },
+    {
+      "name": "BRANCH_UP_1_K2",
+      "group": "branch_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.5,
+      "sample": true,
+      "lower": 0.05,
+      "upper": 1.0,
+      "range_source": "parameter"
+    },
+    {
+      "name": "BRANCH_UP_1_K3",
+      "group": "branch_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.5,
+      "sample": true,
+      "lower": 0.05,
+      "upper": 1.0,
+      "range_source": "parameter"
+    },
+    {
+      "name": "BRANCH_DOWN_1_K",
+      "group": "branch_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.5,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "BRANCH_DOWN_1_K2",
+      "group": "branch_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.5,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    },
+    {
+      "name": "BRANCH_DOWN_1_K3",
+      "group": "branch_ratio",
+      "kind": "ratio",
+      "unit": "ratio",
+      "nominal": 0.0,
+      "sample": false,
+      "lower": null,
+      "upper": null,
+      "range_source": null
+    }
+  ]
+}
