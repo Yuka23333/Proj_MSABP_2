@@ -10,7 +10,7 @@
 旧版本曾出现裸 `.cst` 副本丢失 Field Monitor、几何 Pick 或依赖 Pick 的 Port 有效引用，
 并在求解时报告 `No valid excitation sources defined`。当前维护的 `msa-bp.cst` 已修复：
 2026-08-24 在 CST Studio Suite 2025 中将该文件单独复制到空目录后，完成了删除/重画
-脚本管理几何、检查 Port 1 与 51 个 Farfield Monitor、真实求解及三条 1D 曲线导出。
+脚本管理几何、检查 Port 1 与 61 个 Farfield Monitor、真实求解及三条 1D 曲线导出。
 
 Port、Field Monitor、网格和 solver 设置现在属于模板工程。自动化在每次重画后只校验这些
 对象，不再通过 Python/VBA 删除、重建或静默修补；模板不完整时应在求解前直接失败。

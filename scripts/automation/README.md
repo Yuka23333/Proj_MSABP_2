@@ -75,7 +75,7 @@ python scripts\automation\check_sampled_curve_intersections.py
 模板提供的：
 
 - Port 1；
-- 2--7 GHz、步长 0.1 GHz 的 51 个 Farfield Monitor；
+- 2--8 GHz、步长 0.1 GHz 的 61 个 Farfield Monitor；
 - HF Time Domain solver。
 
 自动化不会删除或重建 Port、Monitor、网格或 solver 设置；缺少任一必需模板对象时会在

@@ -189,7 +189,7 @@ C:\Users\David\.conda\envs\cstpy\python.exe `
 命令行无人值守运行时可追加 `--yes` 跳过确认；IDE/F5 默认保留人工确认。
 
 真实 Maid 把 `msa-bp.cst` 视为仿真 setup 的唯一来源。每个算例先执行 `DeleteResults`，
-重建参数化几何，再只读校验 Port 1、2--7 GHz/0.1 GHz 的 51 个 Farfield Monitor 和
+重建参数化几何，再只读校验 Port 1、2--8 GHz/0.1 GHz 的 61 个 Farfield Monitor 和
 HF Time Domain solver，最后启动求解。Maid 不再删除或重建 Port、Monitor、网格及 solver
 设置；模板不完整时该算例会在求解前明确失败。
 
