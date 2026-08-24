@@ -188,10 +188,10 @@ C:\Users\David\.conda\envs\cstpy\python.exe `
 
 命令行无人值守运行时可追加 `--yes` 跳过确认；IDE/F5 默认保留人工确认。
 
-真实 Maid 不依赖裸 `.cst` 保存 Pick、Port 或 Field Monitor。每个算例会先执行
-`DeleteResults`，重建参数化几何，然后按已录制的 CST 2025 VBA 顺序重新创建 Port 1、
-2--7 GHz/0.1 GHz 的 Farfield Monitor、网格与时域 solver 设置，最后才启动 solver。
-因此“`.cst` 可以打开”和“工程拥有有效激励”是两个独立检查条件。
+真实 Maid 把 `msa-bp.cst` 视为仿真 setup 的唯一来源。每个算例先执行 `DeleteResults`，
+重建参数化几何，再只读校验 Port 1、2--7 GHz/0.1 GHz 的 51 个 Farfield Monitor 和
+HF Time Domain solver，最后启动求解。Maid 不再删除或重建 Port、Monitor、网格及 solver
+设置；模板不完整时该算例会在求解前明确失败。
 
 ```powershell
 C:\Users\David\.conda\envs\cstpy\python.exe scripts\simulation\princess.py start `

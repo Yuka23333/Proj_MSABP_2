@@ -143,31 +143,9 @@ def test_existing_project_solver_order_and_standard_1d_exports(
     assert output_path.with_name("Tot_Eff.csv").stat().st_size > 0
 
 
-def test_recorded_setup_vba_preserves_port_and_monitor_history() -> None:
-    cleanup = cst_run_and_export_s11.build_delete_recorded_setup_vba()
-    port = cst_run_and_export_s11.build_recorded_port_vba()
-    monitor = cst_run_and_export_s11.build_recorded_farfield_monitors_vba()
-    solver = cst_run_and_export_s11.build_recorded_solver_parameters_vba()
-
-    assert "Port.Delete 1" in cleanup
-    assert cleanup.count("Monitor.Delete") == 51
-    assert 'Monitor.Delete "farfield (f=2)"' in cleanup
-    assert 'Monitor.Delete "farfield (f=7)"' in cleanup
-    assert "Pick.ClearAllPicks" in cleanup
-    assert 'Pick.PickEdgeFromId "Connector:ConFace", "30", "22"' in port
-    assert '.Coordinates "Picks"' in port
-    assert '.Yrange "-8.89", "-8.89"' in port
-    assert '.CreateUsingLinearStep "2", "7", "0.1"' in monitor
-    assert '.ExportFarfieldSource "True"' in monitor
-    assert '.CalculationType "TD-S"' in solver
-    assert '.StimulationPort "All"' in solver
-
-
-def test_restore_recorded_setup_executes_in_history_order(
+def test_recorded_setup_inspection_does_not_mutate_project(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    labels: list[str] = []
-
     class FakeModel3D:
         def get_tree_items(self, timeout=None) -> tuple[str, ...]:
             return (
@@ -176,7 +154,7 @@ def test_restore_recorded_setup_executes_in_history_order(
             )
 
         def get_active_solver_name(self, timeout=None) -> str:
-            return "Time Domain Solver"
+            return cst_run_and_export_s11.EXPECTED_SOLVER_NAME
 
         def is_solver_running(self, timeout=None) -> bool:
             return False
@@ -187,22 +165,13 @@ def test_restore_recorded_setup_executes_in_history_order(
     monkeypatch.setattr(
         cst_run_and_export_s11,
         "execute_project_vba",
-        lambda _project, label, _vba, timeout=None: labels.append(label),
+        lambda *_args, **_kwargs: pytest.fail("setup inspection must be read-only"),
     )
 
-    prerequisites = cst_run_and_export_s11.restore_recorded_simulation_setup(
+    prerequisites = cst_run_and_export_s11.inspect_recorded_simulation_setup(
         FakeProject()
     )
 
-    assert labels == [
-        "delete recorded port and farfield monitors",
-        "recreate connector pick and Port 1",
-        "restore solver frequency range",
-        "restore Hexahedral FIT mesh",
-        "restore time-domain solver acceleration",
-        "restore time-domain solver parameters",
-        "recreate 2 to 7 GHz farfield monitors",
-    ]
     assert prerequisites.ports == (
         cst_run_and_export_s11.RECORDED_PORT_TREE_ITEM,
     )
@@ -263,9 +232,9 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         assert project is fake_project
         events.append("clear")
 
-    def fake_restore(project, *, timeout):
+    def fake_inspect(project, timeout):
         assert project is fake_project
-        events.append("restore")
+        events.append("inspect")
 
     def fake_solve(
         project,
@@ -309,8 +278,8 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
     )
     monkeypatch.setattr(
         case_runner.cst_run_and_export_s11,
-        "restore_recorded_simulation_setup",
-        fake_restore,
+        "inspect_recorded_simulation_setup",
+        fake_inspect,
     )
     monkeypatch.setattr(
         case_runner.cst_run_and_export_s11,
@@ -326,7 +295,7 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         stage_callback=stages.append,
     )
 
-    assert events == ["clear", "build", "restore", "solver", "1d-results"]
+    assert events == ["clear", "build", "inspect", "solver", "1d-results"]
     assert result.farfield_source_path is not None
     assert result.farfield_source_path.read_bytes() == b"farfield-source-data"
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
@@ -349,7 +318,7 @@ def test_case_runner_builds_solves_copies_ffs_and_hashes_artifacts(
         "prechecking_geometry",
         "clearing_results",
         "building_geometry",
-        "restoring_simulation_setup",
+        "checking_simulation_setup",
         "solving",
         "exporting_1d_results",
         "copying_farfield_source",
@@ -380,7 +349,7 @@ def test_case_runner_rejects_unchanged_stale_farfield_source(
     )
     monkeypatch.setattr(
         case_runner.cst_run_and_export_s11,
-        "restore_recorded_simulation_setup",
+        "inspect_recorded_simulation_setup",
         lambda *_args, **_kwargs: None,
     )
 

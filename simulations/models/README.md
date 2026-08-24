@@ -5,20 +5,15 @@
 - `*.cst`：可独立打开并恢复主要模型数据的 CST 工程容器，纳入 Git；
 - 与 `.cst` 同名的目录、`bakN`、缓存和求解结果：由 CST 自动生成，只保留在本机。
 
-## 独立 `.cst` 的可移植性限制
+## `msa-bp.cst` 的模板契约
 
-经本项目在 CST Studio Suite 2025 中实测，将单个 `.cst` 文件复制到空目录后打开，并不能
-视为完整还原一个可直接求解的工程。裸 `.cst` 不会可靠携带或恢复以下状态：
+旧版本曾出现裸 `.cst` 副本丢失 Field Monitor、几何 Pick 或依赖 Pick 的 Port 有效引用，
+并在求解时报告 `No valid excitation sources defined`。当前维护的 `msa-bp.cst` 已修复：
+2026-08-24 在 CST Studio Suite 2025 中将该文件单独复制到空目录后，完成了删除/重画
+脚本管理几何、检查 Port 1 与 51 个 Farfield Monitor、真实求解及三条 1D 曲线导出。
 
-- Field Monitor；
-- 几何实体上的 Pick（面、边、点等选择状态）；
-- 依赖上述 Pick 定义的 Port 的有效引用。
-
-因此，使用 `.Coordinates "Picks"` 等方式创建的端口即使仍出现在工程历史或导航树中，
-也可能因为 Pick 引用丢失而成为无效激励；调用求解器时典型表现为
-`No valid excitation sources defined`。自动化流程不得仅凭“工程可以打开”就判定模板可求解，
-而应在打开独立 `.cst` 后通过 Python/VBA 显式重建 Field Monitor、必要的 Pick 以及依赖
-Pick 的 Port，并在正式求解前校验至少存在一个有效激励源。
+Port、Field Monitor、网格和 solver 设置现在属于模板工程。自动化在每次重画后只校验这些
+对象，不再通过 Python/VBA 删除、重建或静默修补；模板不完整时应在求解前直接失败。
 
 `.gitignore` 对本目录采用“默认全部排除、只放行 `*.cst` 和本 README”的策略。因此新增工程时只需把 `.cst` 放在这里；CST 后续生成何种同级工作目录都不会被 Git 收录。
 

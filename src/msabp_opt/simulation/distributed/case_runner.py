@@ -287,15 +287,15 @@ def run_csv_row(
         raise CaseRunError(resolved_case_id, "build", str(exc)) from exc
 
     try:
-        _notify(stage_callback, "restoring_simulation_setup")
-        cst_run_and_export_s11.restore_recorded_simulation_setup(
+        _notify(stage_callback, "checking_simulation_setup")
+        cst_run_and_export_s11.inspect_recorded_simulation_setup(
             project,
-            timeout=command_timeout,
+            command_timeout,
         )
     except Exception as exc:
         raise CaseRunError(
             resolved_case_id,
-            "restore_simulation_setup",
+            "check_simulation_setup",
             str(exc),
         ) from exc
 

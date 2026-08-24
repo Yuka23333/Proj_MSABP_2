@@ -70,24 +70,23 @@ python scripts\automation\check_sampled_curve_intersections.py
 `Patch` 的全局包围范围，反射板仍与基板同尺寸，并沿用原有底边连接器避让槽。
 旧 DoE 显式传入 `AntennaOutlineParameters` 时仍走旧参数化链，避免样本参数被静默忽略。
 
-`cst_run_and_export_s11.py` 保留裸 `.cst` 中的 SMA connector 和边界，并重建脚本管理的
-`component1:msabp_*` 几何。由于独立 `.cst` 不可靠携带 Pick 与 Field Monitor，脚本会在
-每个算例开始时先清除旧结果，完成几何后再按
-`simulations/runs/port-monitor-recording/History_list_record.txt` 的 CST 2025 录制历史重建：
+`cst_run_and_export_s11.py` 保留 `msa-bp.cst` 中的 SMA connector、边界和仿真 setup，
+并重建脚本管理的 `component1:msabp_*` 几何。每个算例先清除旧结果，完成几何后只读校验
+模板提供的：
 
-- `Connector:ConFace` 的 edge 30 / vertex 22 Pick 与 Port 1；
+- Port 1；
 - 2--7 GHz、步长 0.1 GHz 的 51 个 Farfield Monitor；
-- 同一录制过程中的 Hexahedral FIT 网格与时域 solver 设置。
+- HF Time Domain solver。
 
-重建后会校验 Port 1 和完整 monitor 序列，再同步运行 solver，并导出以下三条原始 CST
-ASCII 曲线：
+自动化不会删除或重建 Port、Monitor、网格或 solver 设置；缺少任一必需模板对象时会在
+启动 solver 前失败。校验通过后同步运行 solver，并导出以下三条原始 CST ASCII 曲线：
 
 - `1D Results\S-Parameters\S1,1` → `S11.csv`；
 - `1D Results\Efficiencies\Rad. Efficiency [1]` → `Rad_Eff.csv`；
 - `1D Results\Efficiencies\Tot. Efficiency [1]` → `Tot_Eff.csv`。
 
-录制文件位于被 Git 忽略的运行目录，只作为本次命令转写的原始证据；活动自动化不在运行时
-读取它。
+`simulations/runs/port-monitor-recording/History_list_record.txt` 只保留为历史诊断证据；
+活动自动化不读取或转写它。
 
 ```powershell
 & 'C:\Users\David\.conda\envs\cstpy\python.exe' `
