@@ -130,6 +130,13 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_start(args: argparse.Namespace) -> int:
     registry = load_device_registry(args.devices_config)
     devices = select_devices(registry, args.device_ids)
+    if not args.dry_run:
+        print(
+            "[Princess] Please verify before each Princess run that every Maid "
+            "can open CST and complete a solve; if a Maid cannot connect to "
+            "CST_DE, check the CST license first.",
+            flush=True,
+        )
     run_id = args.run_id or default_run_id()
     preparation = prepare_run(
         source_csv=args.csv,
@@ -168,6 +175,11 @@ def _run_start(args: argparse.Namespace) -> int:
     )
     try:
         runtime.start_server()
+        if runtime.state.resume_run(run_id):
+            print(
+                "[Princess] cleared the previous all-Maid off-duty request",
+                flush=True,
+            )
         deployments = runtime.start_workers(
             resume_grace_seconds=args.resume_grace_seconds,
         )

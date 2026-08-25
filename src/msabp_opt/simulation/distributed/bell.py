@@ -16,6 +16,7 @@ import math
 import os
 import re
 import secrets
+import signal
 import socket
 import socketserver
 import subprocess
@@ -204,8 +205,9 @@ def _canonical_bytes(payload: Mapping[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
-def _signed_wake_request(
+def _signed_control_request(
     *,
+    command: str,
     device_id: str,
     runtime_config_path: str,
     api_token: str,
@@ -213,11 +215,15 @@ def _signed_wake_request(
     request_id: str | None = None,
     nonce: str | None = None,
 ) -> dict[str, Any]:
+    if command not in {"wake", "stop"}:
+        raise BellError(f"unsupported signed Bell command: {command!r}")
     if not isinstance(api_token, str) or len(api_token) < 32:
-        raise BellAuthenticationError("Bell wake requires a strong run API token")
+        raise BellAuthenticationError(
+            f"Bell {command} requires a strong run API token"
+        )
     request = {
         "protocol_version": BELL_PROTOCOL_VERSION,
-        "command": "wake",
+        "command": command,
         "request_id": request_id or uuid4().hex,
         "device_id": _safe_id(device_id, "device_id"),
         "runtime_config_path": _required_text(
@@ -233,6 +239,46 @@ def _signed_wake_request(
         hashlib.sha256,
     ).hexdigest()
     return request
+
+
+def _signed_wake_request(
+    *,
+    device_id: str,
+    runtime_config_path: str,
+    api_token: str,
+    timestamp: float | None = None,
+    request_id: str | None = None,
+    nonce: str | None = None,
+) -> dict[str, Any]:
+    return _signed_control_request(
+        command="wake",
+        device_id=device_id,
+        runtime_config_path=runtime_config_path,
+        api_token=api_token,
+        timestamp=timestamp,
+        request_id=request_id,
+        nonce=nonce,
+    )
+
+
+def _signed_stop_request(
+    *,
+    device_id: str,
+    runtime_config_path: str,
+    api_token: str,
+    timestamp: float | None = None,
+    request_id: str | None = None,
+    nonce: str | None = None,
+) -> dict[str, Any]:
+    return _signed_control_request(
+        command="stop",
+        device_id=device_id,
+        runtime_config_path=runtime_config_path,
+        api_token=api_token,
+        timestamp=timestamp,
+        request_id=request_id,
+        nonce=nonce,
+    )
 
 
 def _read_json_line(stream: Any, *, maximum: int = MAX_BELL_FRAME_BYTES) -> dict[str, Any]:
@@ -288,6 +334,31 @@ def _pid_is_alive(pid: int) -> bool:
         ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
 
 
+def _terminate_process_tree(pid: int) -> None:
+    """Terminate one Maid and every CST/DBStorage descendant it owns."""
+
+    if not _pid_is_alive(pid):
+        return
+    if os.name == "nt":
+        completed = subprocess.run(
+            ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=30.0,
+        )
+        if completed.returncode != 0 and _pid_is_alive(pid):
+            detail = (completed.stderr or completed.stdout or "").strip()
+            raise BellError(
+                f"could not terminate Maid process tree {pid}: "
+                f"{detail or f'exit code {completed.returncode}'}"
+            )
+        return
+    os.kill(pid, signal.SIGTERM)
+
+
 @dataclass(frozen=True)
 class MaidLaunchState:
     pid: int
@@ -306,11 +377,13 @@ class MaidBellController:
         *,
         popen_factory: Callable[..., Any] = subprocess.Popen,
         pid_alive: Callable[[int], bool] = _pid_is_alive,
+        process_tree_terminator: Callable[[int], None] = _terminate_process_tree,
         time_fn: Callable[[], float] = time.time,
     ) -> None:
         self.config = config
         self._popen_factory = popen_factory
         self._pid_alive = pid_alive
+        self._process_tree_terminator = process_tree_terminator
         self._time = time_fn
         self._lock = threading.RLock()
         self._process: Any | None = None
@@ -379,9 +452,11 @@ class MaidBellController:
         command = request.get("command")
         if command == "ping":
             return self.status()
-        if command != "wake":
-            raise BellError(f"unsupported Bell command: {command!r}")
-        return self._wake(request)
+        if command == "wake":
+            return self._wake(request)
+        if command == "stop":
+            return self._stop(request)
+        raise BellError(f"unsupported Bell command: {command!r}")
 
     def _runtime_and_token(self, raw_path: Any) -> tuple[Path, dict[str, Any], str]:
         runtime_path = Path(_required_text(raw_path, "runtime_config_path")).resolve()
@@ -408,9 +483,11 @@ class MaidBellController:
             raise BellAuthenticationError("runtime JSON has no strong API token")
         return runtime_path, payload, token
 
-    def _verify_wake(
+    def _verify_control(
         self,
         request: Mapping[str, Any],
+        *,
+        expected_command: str,
     ) -> tuple[Path, str, str]:
         allowed = {
             "protocol_version",
@@ -423,27 +500,31 @@ class MaidBellController:
             "signature",
         }
         if set(request) != allowed:
-            raise BellAuthenticationError("wake request has missing or unknown fields")
+            raise BellAuthenticationError("Bell request has missing or unknown fields")
         if request.get("protocol_version") != BELL_PROTOCOL_VERSION:
             raise BellAuthenticationError("unsupported Bell protocol version")
+        if request.get("command") != expected_command:
+            raise BellAuthenticationError(
+                f"Bell request is not an authenticated {expected_command} command"
+            )
         if request.get("device_id") != self.config.device_id:
-            raise BellAuthenticationError("wake request targets a different device")
+            raise BellAuthenticationError("Bell request targets a different device")
         request_id = _safe_id(request.get("request_id"), "request_id")
         nonce = _required_text(request.get("nonce"), "nonce")
         if len(nonce) < 16 or len(nonce) > 128:
             raise BellAuthenticationError("wake nonce length is invalid")
         timestamp_raw = request.get("timestamp")
         if isinstance(timestamp_raw, bool) or not isinstance(timestamp_raw, (int, float)):
-            raise BellAuthenticationError("wake timestamp must be numeric")
+            raise BellAuthenticationError("Bell timestamp must be numeric")
         timestamp = float(timestamp_raw)
         if not math.isfinite(timestamp) or abs(self._time() - timestamp) > self.config.clock_skew_seconds:
-            raise BellAuthenticationError("wake timestamp is outside the allowed window")
+            raise BellAuthenticationError("Bell timestamp is outside the allowed window")
         runtime_path, _runtime, token = self._runtime_and_token(
             request.get("runtime_config_path")
         )
         signature = str(request.get("signature", "")).lower()
         if not _SHA256.fullmatch(signature):
-            raise BellAuthenticationError("wake signature is invalid")
+            raise BellAuthenticationError("Bell signature is invalid")
         unsigned = dict(request)
         unsigned.pop("signature", None)
         expected = hmac.new(
@@ -452,11 +533,14 @@ class MaidBellController:
             hashlib.sha256,
         ).hexdigest()
         if not hmac.compare_digest(signature, expected):
-            raise BellAuthenticationError("wake signature does not match")
+            raise BellAuthenticationError("Bell signature does not match")
         return runtime_path, request_id, signature
 
     def _wake(self, request: Mapping[str, Any]) -> dict[str, Any]:
-        runtime_path, request_id, signature = self._verify_wake(request)
+        runtime_path, request_id, signature = self._verify_control(
+            request,
+            expected_command="wake",
+        )
         now = self._time()
         with self._lock:
             self._responses = {
@@ -484,6 +568,54 @@ class MaidBellController:
 
             state = self._launch(runtime_path)
             response = self._response_for_state(state, "started")
+            self._responses[request_id] = (signature, response, now)
+            return response
+
+    def _stop(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        runtime_path, request_id, signature = self._verify_control(
+            request,
+            expected_command="stop",
+        )
+        now = self._time()
+        with self._lock:
+            self._responses = {
+                key: value
+                for key, value in self._responses.items()
+                if now - value[2] <= self.config.clock_skew_seconds * 2.0
+            }
+            cached = self._responses.get(request_id)
+            if cached is not None:
+                if not hmac.compare_digest(cached[0], signature):
+                    raise BellAuthenticationError(
+                        "request_id was reused with a different signature"
+                    )
+                return dict(cached[1])
+
+            current = self._refresh_state()
+            if current is None:
+                response = {
+                    "ok": True,
+                    "protocol_version": BELL_PROTOCOL_VERSION,
+                    "status": "already_idle",
+                    "pid": None,
+                    "runtime_config_path": str(runtime_path),
+                }
+            else:
+                if Path(current.runtime_config_path) != runtime_path:
+                    raise BellBusyError(
+                        f"Maid pid {current.pid} already owns another runtime"
+                    )
+                self._process_tree_terminator(current.pid)
+                self._process = None
+                self._state = None
+                self._write_state(None)
+                response = {
+                    "ok": True,
+                    "protocol_version": BELL_PROTOCOL_VERSION,
+                    "status": "stopped",
+                    "pid": current.pid,
+                    "runtime_config_path": str(runtime_path),
+                }
             self._responses[request_id] = (signature, response, now)
             return response
 
@@ -697,6 +829,21 @@ class MaidBellClient:
     ) -> dict[str, Any]:
         return self._request(
             _signed_wake_request(
+                device_id=device_id,
+                runtime_config_path=runtime_config_path,
+                api_token=api_token,
+            )
+        )
+
+    def stop(
+        self,
+        *,
+        device_id: str,
+        runtime_config_path: str,
+        api_token: str,
+    ) -> dict[str, Any]:
+        return self._request(
+            _signed_stop_request(
                 device_id=device_id,
                 runtime_config_path=runtime_config_path,
                 api_token=api_token,

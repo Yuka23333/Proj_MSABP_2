@@ -17,6 +17,7 @@ from msabp_opt.simulation.distributed.bell import (
     MaidBellConfig,
     MaidBellController,
     MaidBellServer,
+    _signed_stop_request,
     _signed_wake_request,
 )
 
@@ -154,6 +155,33 @@ def test_bell_refuses_a_second_runtime_while_maid_is_alive(tmp_path: Path) -> No
 
     with pytest.raises(BellBusyError, match="already owns another runtime"):
         controller.handle_request(_request(second_runtime))
+
+
+def test_bell_authenticated_stop_terminates_the_owned_process_tree(
+    tmp_path: Path,
+) -> None:
+    config, runtime = _bell_files(tmp_path)
+    terminated: list[int] = []
+    controller = MaidBellController(
+        config,
+        popen_factory=RecordingPopen(),
+        process_tree_terminator=terminated.append,
+    )
+    started = controller.handle_request(_request(runtime))
+    request = _signed_stop_request(
+        device_id="maid-a",
+        runtime_config_path=str(runtime),
+        api_token=TOKEN,
+    )
+
+    stopped = controller.handle_request(request)
+    repeated = controller.handle_request(request)
+
+    assert stopped["status"] == "stopped"
+    assert stopped["pid"] == started["pid"]
+    assert repeated == stopped
+    assert terminated == [started["pid"]]
+    assert controller.status()["status"] == "idle"
 
 
 def test_bell_config_rejects_entrypoint_outside_repository(tmp_path: Path) -> None:

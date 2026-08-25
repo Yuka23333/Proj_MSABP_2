@@ -1198,6 +1198,15 @@ class PrincessRuntime:
         terminal_since: float | None = None
         run_id = self.preparation.paths.run_id
         while not stop_event.is_set():
+            stop_reason = self.state.stop_request(run_id)
+            if stop_reason is not None:
+                progress = self.state.progress(run_id).as_dict()
+                progress["stop_requested"] = True
+                print(
+                    f"[Princess] all Maids dismissed: {stop_reason}",
+                    flush=True,
+                )
+                return progress
             now = time.time()
             expired = self.state.release_expired_leases(
                 run_id,

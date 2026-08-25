@@ -411,6 +411,14 @@ class PrincessState:
                 created_at REAL NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS run_control (
+                run_id TEXT PRIMARY KEY,
+                stop_requested INTEGER NOT NULL DEFAULT 0,
+                reason TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS tasks (
                 run_id TEXT NOT NULL,
                 case_id TEXT NOT NULL,
@@ -681,6 +689,152 @@ class PrincessState:
                     "csv_sha256": frozen_csv.sha256,
                     "row_count": frozen_csv.row_count,
                 },
+            )
+            connection.execute(
+                """
+                INSERT INTO run_control(run_id, stop_requested, reason, updated_at)
+                VALUES (?, 0, '', ?)
+                """,
+                (run_id, timestamp),
+            )
+        return True
+
+    def request_stop(
+        self,
+        run_id: str,
+        *,
+        reason: str,
+        now: float | None = None,
+    ) -> tuple[str, ...]:
+        """Stop scheduling and refund every currently leased attempt."""
+
+        run_id = self._require_text(run_id, "run_id")
+        reason = self._require_text(reason, "reason")
+        timestamp = self._now(now)
+        with self._transaction() as connection:
+            self._require_run_locked(connection, run_id)
+            active = connection.execute(
+                """
+                SELECT t.case_id, t.attempt_id
+                FROM tasks AS t
+                JOIN attempts AS a ON a.attempt_id = t.attempt_id
+                WHERE t.run_id = ? AND t.status = 'running'
+                    AND a.status IN ('running', 'artifact_ready')
+                ORDER BY t.csv_row_index
+                """,
+                (run_id,),
+            ).fetchall()
+            for task in active:
+                connection.execute(
+                    """
+                    UPDATE attempts
+                    SET status = 'released', finished_at = ?,
+                        error_kind = 'Released', error_message = ?
+                    WHERE attempt_id = ? AND status IN ('running', 'artifact_ready')
+                    """,
+                    (timestamp, reason, task["attempt_id"]),
+                )
+                connection.execute(
+                    """
+                    UPDATE tasks
+                    SET status = 'pending',
+                        attempt_count = CASE
+                            WHEN attempt_count > 0 THEN attempt_count - 1
+                            ELSE 0
+                        END,
+                        worker_id = NULL, attempt_id = NULL,
+                        lease_token = NULL, lease_expires_at = NULL,
+                        last_error_kind = 'Released', last_error_message = ?,
+                        updated_at = ?
+                    WHERE run_id = ? AND case_id = ?
+                    """,
+                    (reason, timestamp, run_id, task["case_id"]),
+                )
+            connection.execute(
+                """
+                UPDATE workers
+                SET status = 'stopped', current_case_id = NULL,
+                    current_attempt_id = NULL, updated_at = ?
+                WHERE run_id = ?
+                """,
+                (timestamp, run_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO run_control(run_id, stop_requested, reason, updated_at)
+                VALUES (?, 1, ?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    stop_requested = 1,
+                    reason = excluded.reason,
+                    updated_at = excluded.updated_at
+                """,
+                (run_id, reason, timestamp),
+            )
+            case_ids = tuple(str(task["case_id"]) for task in active)
+            self._event_locked(
+                connection,
+                run_id,
+                "run_stop_requested",
+                now=timestamp,
+                payload={"reason": reason, "released_case_ids": list(case_ids)},
+            )
+        return case_ids
+
+    def stop_request(self, run_id: str) -> str | None:
+        """Return the durable stop reason, if emergency dismissal is active."""
+
+        run_id = self._require_text(run_id, "run_id")
+        with self._lock:
+            self._require_run_locked(self._connection, run_id)
+            row = self._connection.execute(
+                """
+                SELECT stop_requested, reason FROM run_control WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+        if row is None or not bool(row["stop_requested"]):
+            return None
+        return str(row["reason"])
+
+    def resume_run(self, run_id: str, *, now: float | None = None) -> bool:
+        """Clear an earlier emergency stop before an explicit new start."""
+
+        run_id = self._require_text(run_id, "run_id")
+        timestamp = self._now(now)
+        with self._transaction() as connection:
+            self._require_run_locked(connection, run_id)
+            row = connection.execute(
+                """
+                SELECT stop_requested, reason FROM run_control WHERE run_id = ?
+                """,
+                (run_id,),
+            ).fetchone()
+            if row is None or not bool(row["stop_requested"]):
+                return False
+            previous_reason = str(row["reason"])
+            connection.execute(
+                """
+                UPDATE run_control
+                SET stop_requested = 0, reason = '', updated_at = ?
+                WHERE run_id = ?
+                """,
+                (timestamp, run_id),
+            )
+            connection.execute(
+                """
+                UPDATE workers
+                SET status = 'offline', consecutive_errors = 0,
+                    automatic_restarts_without_success = 0, updated_at = ?
+                WHERE run_id = ? AND status = 'stopped'
+                """,
+                (timestamp, run_id),
+            )
+            self._event_locked(
+                connection,
+                run_id,
+                "run_resumed_after_stop",
+                now=timestamp,
+                payload={"previous_reason": previous_reason},
             )
         return True
 

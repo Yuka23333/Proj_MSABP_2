@@ -228,6 +228,23 @@ C:\Users\David\.conda\envs\cstpy\python.exe scripts\simulation\princess.py statu
 
 输出包含 `completed`、`running`、`pending`、`failed`、总数，以及每台 Maid 的状态。
 
+### 5. 紧急一键下班
+
+Princess 或 CST 卡住时，可在 IDE 中直接 F5 运行，或从仓库根目录执行：
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe scripts\simulation\dismiss_all_maids.py
+```
+
+脚本只处理各 Maid Bell 此刻明确报告为运行中的 runtime，不扫描或修改其他历史 run。它先
+在对应 Princess SQLite 中设置持久化停机标记，将当前租约原子释放回 `pending` 并退还
+本次 attempt 额度，再通过带当前 run token 签名的 Bell `stop` 命令结束 Maid 以及它
+拥有的 CST/DBStorage 进程树。CSV、已完成结果和数据库不会删除。再次显式使用同一 run ID
+执行 `princess.py start` 时，Princess 才会清除停机标记并恢复调度。
+
+Bell 服务必须已经 pull 到包含 `stop` 协议的版本并重启一次；否则旧服务会返回
+`unsupported Bell command: 'stop'`，脚本会保留错误报告而不会改用未经认证的远程强杀。
+
 ## CSV 过滤与失败策略
 
 Princess 首先冻结原始 CSV，再在本机生成实际下发的 `worklist.csv`。采样器已经标记为
