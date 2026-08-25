@@ -82,6 +82,53 @@ def test_builder_reuses_existing_project_without_opening_or_saving(
     assert report.final_conductor_component_count == 1
 
 
+def test_builder_uses_builtin_vacuum_without_redefining_it(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    commands: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        cst_build_msabp_geometry,
+        "execute_project_vba",
+        lambda _project, label, vba, timeout=None: commands.append((label, vba)),
+    )
+    monkeypatch.setattr(
+        cst_build_msabp_geometry,
+        "execute_save_project",
+        lambda *_args, **_kwargs: pytest.fail("save must be disabled"),
+    )
+
+    report = cst_build_msabp_geometry.build_msabp_in_cst(
+        project_path=tmp_path / "not-opened.cst",
+        project=object(),
+        substrate_material_name="Vacuum",
+        save_project=False,
+    )
+
+    labels = [label for label, _vba in commands]
+    substrate_vba = next(vba for label, vba in commands if label == "extrude substrate")
+    assert "define substrate material" not in labels
+    assert '.Material "Vacuum"' in substrate_vba
+    assert report.substrate_material_name == "Vacuum"
+    assert report.substrate_relative_permittivity == pytest.approx(1.0)
+
+
+def test_case_runner_dry_run_records_vacuum_substrate(tmp_path: Path) -> None:
+    row = _default_csv_row(sample_id=2)
+    row[case_runner.SUBSTRATE_MATERIAL_COLUMN] = "Vacuum"
+
+    result = case_runner.run_csv_row(
+        row,
+        project_path=tmp_path / "not-opened.cst",
+        output_root=tmp_path / "results",
+        dry_run=True,
+    )
+
+    manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["geometry"]["substrate_material_name"] == "Vacuum"
+    assert manifest["geometry"]["substrate_relative_permittivity"] == pytest.approx(1.0)
+
+
 def test_existing_project_solver_order_and_standard_1d_exports(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -172,9 +219,7 @@ def test_recorded_setup_inspection_does_not_mutate_project(
         FakeProject()
     )
 
-    assert prerequisites.ports == (
-        cst_run_and_export_s11.RECORDED_PORT_TREE_ITEM,
-    )
+    assert prerequisites.ports == (cst_run_and_export_s11.RECORDED_PORT_TREE_ITEM,)
     assert len(prerequisites.farfield_monitors) == 61
 
 

@@ -40,6 +40,7 @@ RAD_EFF_FILENAME = cst_run_and_export_s11.RAD_EFF_FILENAME
 TOT_EFF_FILENAME = cst_run_and_export_s11.TOT_EFF_FILENAME
 FARFIELD_SOURCE_FILENAME = "Farfield Source [1].ffs"
 MANIFEST_FILENAME = "manifest.json"
+SUBSTRATE_MATERIAL_COLUMN = "substrate_material"
 _SAFE_CASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 StageCallback = Callable[[str], None]
@@ -182,10 +183,23 @@ def run_csv_row(
             detail = str(row.get("geometry_error", "")).strip()
             raise ValueError(detail or "sampler marked this geometry invalid")
         parameters = antenna_sampler.parameters_from_csv_row(row)
+        substrate_material_name = str(
+            row.get(
+                SUBSTRATE_MATERIAL_COLUMN,
+                cst_build_msabp_geometry.DEFAULT_SUBSTRATE_MATERIAL_NAME,
+            )
+        ).strip()
         _notify(stage_callback, "prechecking_geometry")
-        _, preflight_report = cst_build_msabp_geometry.build_sampled_polygon_specs(
-            parameters,
-            coordinate_quantum_mm=coordinate_quantum_mm,
+        preflight_specs, preflight_report = (
+            cst_build_msabp_geometry.build_sampled_polygon_specs(
+                parameters,
+                coordinate_quantum_mm=coordinate_quantum_mm,
+            )
+        )
+        _, preflight_report = cst_build_msabp_geometry.apply_substrate_material(
+            preflight_specs,
+            preflight_report,
+            substrate_material_name,
         )
     except Exception as exc:
         raise CaseRunError(resolved_case_id, "precheck", str(exc)) from exc
@@ -278,6 +292,7 @@ def run_csv_row(
             project_path=project_path,
             parameters=parameters,
             coordinate_quantum_mm=coordinate_quantum_mm,
+            substrate_material_name=substrate_material_name,
             allow_disconnected_conductor=allow_disconnected_conductor,
             timeout=command_timeout,
             project=project,
@@ -328,7 +343,9 @@ def run_csv_row(
             )
         shutil.copy2(farfield_source, farfield_destination)
         if farfield_destination.stat().st_size == 0:
-            raise RuntimeError(f"copied farfield source is empty: {farfield_destination}")
+            raise RuntimeError(
+                f"copied farfield source is empty: {farfield_destination}"
+            )
     except Exception as exc:
         raise CaseRunError(resolved_case_id, "copy_farfield_source", str(exc)) from exc
 
@@ -348,9 +365,7 @@ def run_csv_row(
             "s11": _artifact_record(s11_path, case_directory),
             "rad_eff": _artifact_record(rad_eff_path, case_directory),
             "tot_eff": _artifact_record(tot_eff_path, case_directory),
-            "farfield_source": _artifact_record(
-                farfield_destination, case_directory
-            ),
+            "farfield_source": _artifact_record(farfield_destination, case_directory),
         },
     }
     try:

@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -56,6 +56,8 @@ DEFAULT_TOOL_MATERIAL_NAME = "Vacuum"
 DEFAULT_COPPER_THICKNESS_MM = 0.035
 DEFAULT_SUBSTRATE_MATERIAL_NAME = "Rogers AD 350A (lossy)"
 DEFAULT_SUBSTRATE_RELATIVE_PERMITTIVITY = 3.5
+VACUUM_SUBSTRATE_MATERIAL_NAME = "Vacuum"
+VACUUM_SUBSTRATE_RELATIVE_PERMITTIVITY = 1.0
 DEFAULT_SUBSTRATE_THICKNESS_MM = -4.7
 DEFAULT_REFLECTOR_CONNECTOR_BOARD_THICKNESS_MM = (
     antenna_outline.REFLECTOR_CONNECTOR_BOARD_THICKNESS_FIXED_MM
@@ -138,6 +140,58 @@ def _curve_item_ref(curve_name: str, polygon_name: str) -> str:
     return f"{curve_name}:{polygon_name}"
 
 
+def apply_substrate_material(
+    specs: Sequence[CstPolygonSpec],
+    report: GeometryBuildReport,
+    substrate_material_name: str = DEFAULT_SUBSTRATE_MATERIAL_NAME,
+) -> tuple[tuple[CstPolygonSpec, ...], GeometryBuildReport]:
+    """Apply one supported substrate material without changing geometry.
+
+    ``Vacuum`` is a built-in CST material and must not be deleted or recreated.
+    The Rogers baseline remains the default for every row without an explicit
+    override.
+    """
+
+    requested = str(substrate_material_name).strip()
+    supported = {
+        DEFAULT_SUBSTRATE_MATERIAL_NAME.casefold(): (
+            DEFAULT_SUBSTRATE_MATERIAL_NAME,
+            DEFAULT_SUBSTRATE_RELATIVE_PERMITTIVITY,
+        ),
+        VACUUM_SUBSTRATE_MATERIAL_NAME.casefold(): (
+            VACUUM_SUBSTRATE_MATERIAL_NAME,
+            VACUUM_SUBSTRATE_RELATIVE_PERMITTIVITY,
+        ),
+    }
+    try:
+        canonical_name, relative_permittivity = supported[requested.casefold()]
+    except KeyError as exc:
+        names = ", ".join(item[0] for item in supported.values())
+        raise ValueError(
+            f"unsupported substrate material {requested!r}; expected one of: {names}"
+        ) from exc
+
+    substrate_matches = [
+        spec for spec in specs if spec.solid_name == SUBSTRATE_SOLID_NAME
+    ]
+    if len(substrate_matches) != 1:
+        raise ValueError(
+            "CST polygon specs must contain exactly one managed substrate solid"
+        )
+    updated_specs = tuple(
+        replace(spec, material_name=canonical_name)
+        if spec.solid_name == SUBSTRATE_SOLID_NAME
+        else spec
+        for spec in specs
+    )
+    updated_report = replace(
+        report,
+        substrate_material_name=canonical_name,
+        substrate_relative_permittivity=relative_permittivity,
+    )
+    return updated_specs, updated_report
+
+
 def _polygon_signed_area(points: Sequence[Point2D]) -> float:
     if len(points) < 3:
         return 0.0
@@ -181,9 +235,7 @@ def _build_direct_polygon_specs(
     reflector_connector_board_thickness_mm = float(
         reflector_connector_board_thickness_mm
     )
-    reflector_cutout_width_adjustment_mm = float(
-        reflector_cutout_width_adjustment_mm
-    )
+    reflector_cutout_width_adjustment_mm = float(reflector_cutout_width_adjustment_mm)
     reflector_cutout_depth_mm = float(reflector_cutout_depth_mm)
     if not math.isfinite(copper_thickness_mm) or copper_thickness_mm <= 0.0:
         raise ValueError("copper thickness must be a finite positive number")
@@ -304,9 +356,7 @@ def _build_direct_polygon_specs(
         slot_area_mm2=slot_area_mm2,
         guide_area_mm2=guide_area_mm2,
         final_conductor_area_mm2=final_conductor_area_mm2,
-        final_conductor_volume_mm3=(
-            final_conductor_area_mm2 * copper_thickness_mm
-        ),
+        final_conductor_volume_mm3=(final_conductor_area_mm2 * copper_thickness_mm),
         final_conductor_component_count=1,
         coordinate_quantum_mm=exported.quantize_step_mm,
         reflector_cutout_width_mm=2.0 * reflector_cutout_half_width_mm,
@@ -338,12 +388,8 @@ def build_exported_polygon_specs(
         exported,
         copper_thickness_mm=copper_thickness_mm,
         substrate_thickness_mm=substrate_thickness_mm,
-        reflector_connector_board_thickness_mm=(
-            reflector_connector_board_thickness_mm
-        ),
-        reflector_cutout_width_adjustment_mm=(
-            reflector_cutout_width_adjustment_mm
-        ),
+        reflector_connector_board_thickness_mm=(reflector_connector_board_thickness_mm),
+        reflector_cutout_width_adjustment_mm=(reflector_cutout_width_adjustment_mm),
         reflector_cutout_depth_mm=reflector_cutout_depth_mm,
     )
 
@@ -382,12 +428,8 @@ def build_sampled_polygon_specs(
         exported,
         copper_thickness_mm=copper_thickness_mm,
         substrate_thickness_mm=substrate_thickness_mm,
-        reflector_connector_board_thickness_mm=(
-            reflector_connector_board_thickness_mm
-        ),
-        reflector_cutout_width_adjustment_mm=(
-            reflector_cutout_width_adjustment_mm
-        ),
+        reflector_connector_board_thickness_mm=(reflector_connector_board_thickness_mm),
+        reflector_cutout_width_adjustment_mm=(reflector_cutout_width_adjustment_mm),
         reflector_cutout_depth_mm=reflector_cutout_depth_mm,
     )
 
@@ -423,9 +465,7 @@ def build_polygon_specs(
     reflector_connector_board_thickness_mm = float(
         reflector_connector_board_thickness_mm
     )
-    reflector_cutout_width_adjustment_mm = float(
-        reflector_cutout_width_adjustment_mm
-    )
+    reflector_cutout_width_adjustment_mm = float(reflector_cutout_width_adjustment_mm)
     reflector_cutout_depth_mm = float(reflector_cutout_depth_mm)
     coordinate_quantum_mm = float(coordinate_quantum_mm)
     if not math.isfinite(coordinate_quantum_mm) or coordinate_quantum_mm <= 0.0:
@@ -460,8 +500,10 @@ def build_polygon_specs(
         - reflector_connector_board_thickness_mm
         + reflector_cutout_width_adjustment_mm
     )
-    if not 0.0 < reflector_cutout_half_width_mm < (
-        parameters.rectangle_length_mm / 2.0
+    if (
+        not 0.0
+        < reflector_cutout_half_width_mm
+        < (parameters.rectangle_length_mm / 2.0)
     ):
         raise ValueError("reflector cutout width does not fit inside the reflector")
     if reflector_cutout_depth_mm >= parameters.rectangle_width_mm:
@@ -539,8 +581,13 @@ def build_polygon_specs(
         raise ValueError("the connector clearance lies outside the reflector")
 
     final_conductor = patch_polygon.difference(slot_polygon).union(guide_polygon)
-    if not isinstance(final_conductor, (Polygon, MultiPolygon)) or not final_conductor.is_valid:
-        raise ValueError("Patch - slot + guide did not produce valid polygonal geometry")
+    if (
+        not isinstance(final_conductor, (Polygon, MultiPolygon))
+        or not final_conductor.is_valid
+    ):
+        raise ValueError(
+            "Patch - slot + guide did not produce valid polygonal geometry"
+        )
     final_conductor_component_count = (
         1 if isinstance(final_conductor, Polygon) else len(final_conductor.geoms)
     )
@@ -887,8 +934,9 @@ def _build_live_vba_sequence(
 ) -> list[tuple[str, str]]:
     commands: list[tuple[str, str]] = [
         ("prepare project", build_prepare_project_vba(specs, component_name)),
-        ("define substrate material", build_substrate_material_vba()),
     ]
+    if report.substrate_material_name != VACUUM_SUBSTRATE_MATERIAL_NAME:
+        commands.append(("define substrate material", build_substrate_material_vba()))
     for spec in specs:
         commands.extend(
             (
@@ -962,6 +1010,7 @@ def build_msabp_in_cst(
     polygon_json_path: str | Path = DEFAULT_POLYGON_JSON_PATH,
     thickness_mm: float = DEFAULT_COPPER_THICKNESS_MM,
     substrate_thickness_mm: float = DEFAULT_SUBSTRATE_THICKNESS_MM,
+    substrate_material_name: str = DEFAULT_SUBSTRATE_MATERIAL_NAME,
     reflector_connector_board_thickness_mm: float | None = None,
     reflector_cutout_width_adjustment_mm: float | None = None,
     reflector_cutout_depth_mm: float | None = None,
@@ -1035,14 +1084,17 @@ def build_msabp_in_cst(
             reflector_connector_board_thickness_mm=(
                 reflector_connector_board_thickness_mm
             ),
-            reflector_cutout_width_adjustment_mm=(
-                reflector_cutout_width_adjustment_mm
-            ),
+            reflector_cutout_width_adjustment_mm=(reflector_cutout_width_adjustment_mm),
             reflector_cutout_depth_mm=reflector_cutout_depth_mm,
             coordinate_quantum_mm=coordinate_quantum_mm,
             allow_disconnected_conductor=allow_disconnected_conductor,
         )
 
+    specs, report = apply_substrate_material(
+        specs,
+        report,
+        substrate_material_name,
+    )
     commands = _build_live_vba_sequence(
         specs,
         report,
@@ -1149,6 +1201,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Negative -Z substrate extrusion thickness in mm.",
     )
     parser.add_argument(
+        "--substrate-material",
+        default=DEFAULT_SUBSTRATE_MATERIAL_NAME,
+        choices=(DEFAULT_SUBSTRATE_MATERIAL_NAME, VACUUM_SUBSTRATE_MATERIAL_NAME),
+        help="Substrate material; Vacuum is intended for controlled comparison runs.",
+    )
+    parser.add_argument(
         "--reflector-connector-board-thickness",
         type=float,
         default=None,
@@ -1193,12 +1251,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         polygon_json_path=args.polygon_json,
         thickness_mm=args.thickness,
         substrate_thickness_mm=args.substrate_thickness,
+        substrate_material_name=args.substrate_material,
         reflector_connector_board_thickness_mm=(
             args.reflector_connector_board_thickness
         ),
-        reflector_cutout_width_adjustment_mm=(
-            args.reflector_cutout_width_adjustment
-        ),
+        reflector_cutout_width_adjustment_mm=(args.reflector_cutout_width_adjustment),
         reflector_cutout_depth_mm=args.reflector_cutout_depth,
         coordinate_quantum_mm=args.coordinate_quantum,
         allow_disconnected_conductor=args.allow_disconnected_conductor,
