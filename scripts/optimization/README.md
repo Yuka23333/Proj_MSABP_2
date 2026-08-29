@@ -199,3 +199,51 @@ directory to PATH for `ninja`, discovers Visual Studio Build Tools with
 `vswhere`, and loads the x64 compiler variables into its own process.
 This enables BoTorch's fused qLogEHVI extension without changing system-wide
 environment variables.
+
+## K-RVEA 11-variable smoke campaign
+
+`run_krvea.py` owns the first four-objective K-RVEA campaign.  Its immutable
+contract is 512 completed historical designs plus 128 new evaluations in
+`q=4` batches.  Only the eleven variables frozen in
+`configs/optimization/krvea_11var_branch_up.json` are optimized; every worklist
+row materializes the other twelve parameters and preserves the authoritative
+23-column order expected by Princess/Maid.
+
+The four internal minimization objectives are worst linear `|S11|`, one minus
+mean linear `Tot_Eff`, substrate area divided by the nominal 2720.2 mm2, and
+theta 0--15 degree cap-averaged realized gain in dBi.  Gain is averaged over
+angle and the 3.1--4.8 GHz band in linear power before conversion to dBi.
+Three float64 GPs run in CoconutG2's `bocuda` environment; area remains an
+exact zero-uncertainty objective.  A geometry rejection, exhausted CST task,
+or unusable result consumes one of the 128 points and receives a poor value in
+all four objectives.
+
+First parse and cache the 512 historical objective records without SSH or CST:
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\optimization\run_krvea.py --prepare-only
+```
+
+The first pass reads every far-field source and can take several minutes;
+later batches reuse hash-bound cap-gain and observation caches.  Exercise the
+CoconutG2 proposal relay and persist four candidates without starting Princess:
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\optimization\run_krvea.py --stop-after-proposal
+```
+
+After inspecting that batch, start or resume the real campaign with the same
+script and type `RUN`, or pass `--yes`.  The controller remains authoritative
+for budget and state, while `convallariag5` and `coconutg2` are the two CST
+Maid workers.  Re-running the command resumes the frozen active batch.
+
+The implementation is an independent Python reimplementation informed by the
+authors' MATLAB repository at commit
+`1f32028fb974e2b5739eb795a4a008b6edc1a703`; the consulted checkout remains
+local under ignored `archive/external/`.  Algorithm provenance: T. Chugh,
+Y. Jin, K. Miettinen, J. Hakanen, and K. Sindhya, "A surrogate-assisted
+reference vector guided evolutionary algorithm for computationally expensive
+many-objective optimization," IEEE Transactions on Evolutionary Computation,
+22(1):129--142, 2018.

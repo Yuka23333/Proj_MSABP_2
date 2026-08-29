@@ -80,3 +80,6 @@ data/samples/*.npy
 
 # Local migrated reference code; retained for consultation but not versioned.
 /scripts/automation/Legacy_Automation_scripts/
+
+# Read-only upstream repositories used for algorithm study.
+/archive/external/
