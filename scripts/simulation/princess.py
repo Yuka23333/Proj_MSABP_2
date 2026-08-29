@@ -33,6 +33,77 @@ from msabp_opt.simulation.distributed.transport import doctor_device  # noqa: E4
 DEFAULT_PROJECT = REPOSITORY_ROOT / "simulations" / "models" / "msa-bp.cst"
 
 
+# =============================================================================
+#  ______ _____    _____  _    _ _   _
+# |  ____| ____|  |  __ \| |  | | \ | |
+# | |__  | |__    | |__) | |  | |  \| |
+# |  __| |___ \   |  _  /| |  | | . ` |
+# | |     ___) |  | | \ \| |__| | |\  |
+# |_|    |____/   |_|  \_\\____/|_| \_|
+#
+# F5 RUN: edit this block before launching princess.py without CLI arguments.
+# - Change F5_CSV_PATH after generating a new parameter worklist.
+# - Change F5_RUN_ID whenever the CSV/design changes; reuse it only to resume.
+# - Change F5_DEVICES_CONFIG_PATH for a different Maid registry JSON.
+# - Change F5_DEVICE_IDS to select the Maids that should execute the run.
+# =============================================================================
+F5_CSV_PATH = (
+    REPOSITORY_ROOT / "data" / "samples" / "doe-11var-branch-up-lhs-holdout-64.csv"
+)
+F5_RUN_ID = "doe-11var-branch-up-lhs-holdout-64-001"
+F5_DEVICES_CONFIG_PATH = DEFAULT_DEVICE_CONFIG_PATH
+F5_DEVICE_IDS = ("convallariag5", "coconutg2")
+F5_PROJECT_PATH = DEFAULT_PROJECT
+F5_RESULTS_ROOT: Path | None = None
+F5_DRY_RUN = False
+
+F5_RUN_BANNER = r"""
+ ______ _____    _____  _    _ _   _
+|  ____| ____|  |  __ \| |  | | \ | |
+| |__  | |__    | |__) | |  | |  \| |
+|  __| |___ \   |  _  /| |  | | . ` |
+| |     ___) |  | | \ \| |__| | |\  |
+|_|    |____/   |_|  \_\\____/|_| \_|
+""".strip("\n")
+
+
+def build_f5_start_argv() -> list[str]:
+    """Translate the visible F5 block into the ordinary ``start`` CLI."""
+
+    argv = [
+        "start",
+        "--csv",
+        str(F5_CSV_PATH),
+        "--run-id",
+        F5_RUN_ID,
+        "--devices-config",
+        str(F5_DEVICES_CONFIG_PATH),
+        "--project",
+        str(F5_PROJECT_PATH),
+    ]
+    for device_id in F5_DEVICE_IDS:
+        argv.extend(("--device", device_id))
+    if F5_RESULTS_ROOT is not None:
+        argv.extend(("--results-root", str(F5_RESULTS_ROOT)))
+    if F5_DRY_RUN:
+        argv.append("--dry-run")
+    return argv
+
+
+def print_f5_run_settings() -> None:
+    """Show exactly which source values control a no-argument/F5 run."""
+
+    print(F5_RUN_BANNER, flush=True)
+    print("[F5 RUN] Edit the F5_* block near the top of princess.py:", flush=True)
+    print(f"[F5 RUN] parameter CSV : {F5_CSV_PATH}", flush=True)
+    print(f"[F5 RUN] run ID        : {F5_RUN_ID}", flush=True)
+    print(f"[F5 RUN] device JSON   : {F5_DEVICES_CONFIG_PATH}", flush=True)
+    print(f"[F5 RUN] devices       : {','.join(F5_DEVICE_IDS)}", flush=True)
+    print(f"[F5 RUN] CST project   : {F5_PROJECT_PATH}", flush=True)
+    print(f"[F5 RUN] dry run       : {F5_DRY_RUN}", flush=True)
+    print("[F5 RUN] No CLI arguments detected; starting Princess now.", flush=True)
+
+
 def _add_registry_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--devices-config",
@@ -193,7 +264,9 @@ def _run_start(args: argparse.Namespace) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
         return 0 if int(result["failed"]) == 0 else 2
     except KeyboardInterrupt:
-        print("[Princess] interrupted; durable state is kept for inspection", flush=True)
+        print(
+            "[Princess] interrupted; durable state is kept for inspection", flush=True
+        )
         return 130
     except PrincessRuntimeError as exc:
         print(f"[Princess] stopped: {exc}", file=sys.stderr, flush=True)
@@ -243,6 +316,11 @@ def _run_add_device(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+        if not argv:
+            print_f5_run_settings()
+            argv = build_f5_start_argv()
     args = build_parser().parse_args(argv)
     try:
         if args.command == "start":

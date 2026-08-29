@@ -32,6 +32,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 F5_SOURCE_DIRECTORIES = (
     REPOSITORY_ROOT / "results" / "raw" / "doe-round1-lhs-512",
     REPOSITORY_ROOT / "results" / "raw" / "msabp-qlogehvi-gpu-001",
+    REPOSITORY_ROOT / "results" / "raw" / "msabp-qlogehvi-area-scaled-001",
 )
 F5_BAND_GHZ = (3.1, 4.8)
 F5_OUTPUT_FIGURE = (

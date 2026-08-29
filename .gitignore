@@ -77,3 +77,6 @@ data/samples/*.npy
 
 # Local scratch notes
 /history_list.txt
+
+# Local migrated reference code; retained for consultation but not versioned.
+/scripts/automation/Legacy_Automation_scripts/
