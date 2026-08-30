@@ -200,11 +200,13 @@ directory to PATH for `ninja`, discovers Visual Studio Build Tools with
 This enables BoTorch's fused qLogEHVI extension without changing system-wide
 environment variables.
 
-## K-RVEA 11-variable smoke campaign
+## K-RVEA 11-variable campaigns
 
-`run_krvea.py` owns the first four-objective K-RVEA campaign.  Its immutable
-contract is 512 completed historical designs plus 128 new evaluations in
-`q=4` batches.  Only the eleven variables frozen in
+`run_krvea.py` owns the four-objective K-RVEA campaigns.  The completed smoke
+campaign used 512 historical designs plus 128 new evaluations in `q=4`
+batches.  The current F5 defaults start a separate 64-evaluation calibrated
+continuation and use both completed folders (640 rows) as immutable history.
+Only the eleven variables frozen in
 `configs/optimization/krvea_11var_branch_up.json` are optimized; every worklist
 row materializes the other twelve parameters and preserves the authoritative
 23-column order expected by Princess/Maid.
@@ -213,12 +215,17 @@ The four internal minimization objectives are worst linear `|S11|`, one minus
 mean linear `Tot_Eff`, substrate area divided by the nominal 2720.2 mm2, and
 theta 0--15 degree cap-averaged realized gain in dBi.  Gain is averaged over
 angle and the 3.1--4.8 GHz band in linear power before conversion to dBi.
-Three float64 GPs run in CoconutG2's `bocuda` environment; area remains an
-exact zero-uncertainty objective.  A geometry rejection, exhausted CST task,
-or unusable result consumes one of the 128 points and receives a poor value in
-all four objectives.
+Three float64 Matérn-5/2 ARD GPs run in CoconutG2's `bocuda` environment;
+area remains an exact zero-uncertainty objective.  Failed rows remain in the
+optimization archive with poor objective values but are excluded from GP
+fitting.  The two bounded targets use logit transforms, and their physical
+posterior moments are recovered with Gauss-Hermite quadrature.  Predictive
+standard deviations use replay-derived per-objective guards plus a
+distance-from-training-support multiplier.  Selection uses the conservative
+minimization value `mean + 1.645 * calibrated_std`; one of every four points is
+reserved for uncertainty-plus-maximin exploration.
 
-First parse and cache the 512 historical objective records without SSH or CST:
+First parse and cache all 640 historical objective records without SSH or CST:
 
 ```powershell
 C:\Users\David\.conda\envs\cstpy\python.exe `
@@ -234,8 +241,20 @@ C:\Users\David\.conda\envs\cstpy\python.exe `
   scripts\optimization\run_krvea.py --stop-after-proposal
 ```
 
-After inspecting that batch, start or resume the real campaign with the same
-script and type `RUN`, or pass `--yes`.  The controller remains authoritative
+Start or resume the calibrated 64-point campaign with the same script and type
+`RUN`, or pass `--yes`.  The equivalent fully explicit command is:
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\optimization\run_krvea.py `
+  --plan-id msabp-krvea-11var-calibrated-64-002 `
+  --source results\raw\doe-11var-branch-up-lhs-512-001 `
+  --source results\raw\msabp-krvea-11var-smoke-128-001 `
+  --output results\raw\msabp-krvea-11var-calibrated-64-002 `
+  --budget 64 --q 4 --yes
+```
+
+The controller remains authoritative
 for budget and state, while `convallariag5` and `coconutg2` are the two CST
 Maid workers.  Re-running the command resumes the frozen active batch.
 

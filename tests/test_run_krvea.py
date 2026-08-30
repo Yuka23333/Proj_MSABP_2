@@ -164,7 +164,7 @@ def test_history_observations_are_cached_and_must_have_512_distinct_rows(
     assert len(first_dataset.x_unit) == len(second_dataset.x_unit) == 512
 
 
-def test_history_cache_rejects_any_count_other_than_512(
+def test_history_cache_rejects_fewer_than_512_rows(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -176,20 +176,81 @@ def test_history_cache_rejects_any_count_other_than_512(
         lambda *_args, **_kwargs: _synthetic_history_observations(511),
     )
 
-    with pytest.raises(RuntimeError, match="exactly 512"):
+    with pytest.raises(RuntimeError, match="at least 512"):
         run_krvea.load_or_build_history_cache(config)
+
+
+def test_history_cache_accepts_additional_distinct_optimization_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    second_source = tmp_path / "first_krvea"
+    second_source.mkdir()
+    config = run_krvea.replace(
+        config,
+        source_directories=(*config.source_directories, second_source),
+    )
+    config.output_directory.mkdir()
+    monkeypatch.setattr(
+        krvea_data,
+        "collect_observations",
+        lambda *_args, **_kwargs: _synthetic_history_observations(640),
+    )
+
+    observations, dataset, snapshot = run_krvea.load_or_build_history_cache(config)
+
+    assert len(observations) == len(dataset.x_unit) == 640
+    assert snapshot["trainable_count"] == 640
+    assert len(snapshot["sources"]) == 2
+
+
+def test_config_validation_accepts_multiple_historical_sources_and_new_budget(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path, budget=64)
+    second_source = tmp_path / "completed_krvea"
+    second_source.mkdir()
+    config = run_krvea.replace(
+        config,
+        source_directories=(*config.source_directories, second_source),
+    )
+
+    validated = run_krvea._validate_config(config)
+
+    assert validated.total_budget == 64
+    assert validated.source_directories == tuple(
+        path.resolve() for path in config.source_directories
+    )
 
 
 def test_plan_freezes_budget_sources_area_and_cap_contract(tmp_path: Path) -> None:
     config = _config(tmp_path)
     dataset = _dataset()
-    snapshot = {"manifest_count": 512, "manifest_metadata_sha256": "a" * 64}
+    snapshot = {
+        "sources": [
+            {
+                "source_directory": str(config.source_directories[0]),
+                "manifest_count": 512,
+                "manifest_metadata_sha256": "a" * 64,
+            }
+        ],
+        "trainable_count": 512,
+    }
     plan = run_krvea.load_or_create_plan(config, dataset.input_space, snapshot)
+    resumed = run_krvea.load_or_create_plan(config, dataset.input_space, snapshot)
 
+    assert resumed == plan
     assert plan["campaign"] == "512 historical + 128 new expensive evaluations"
     assert plan["total_budget"] == 128
     assert plan["q"] == 4
     assert plan["historical_training_count"] == 512
+    assert plan["proposal"]["penalty_rows_in_gp_fit"] is False
+    assert tuple(
+        plan["proposal"]["surrogate_settings"][
+            "uncertainty_calibration_factors"
+        ]
+    ) == (1.1, 1.1, 1.25)
     assert plan["output_is_automatic_training_source"] is True
     assert plan["objectives"][2]["nominal_area_reference_mm2"] == 2720.2
     assert plan["objectives"][2]["penalty"] == 2.0

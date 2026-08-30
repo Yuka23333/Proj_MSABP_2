@@ -38,8 +38,8 @@ from msabp_opt.simulation.distributed.transport import (
 from . import krvea
 
 
-REQUEST_SCHEMA_VERSION = 1
-RESPONSE_SCHEMA_VERSION = 1
+REQUEST_SCHEMA_VERSION = 2
+RESPONSE_SCHEMA_VERSION = 2
 DEFAULT_REMOTE_TIMEOUT_SECONDS = 1800.0
 DEFAULT_REMOTE_WORK_ROOT = PureWindowsPath("simulations", "runs", "krvea_gpu")
 
@@ -58,6 +58,8 @@ EXPENSIVE_OBJECTIVE_NAMES = tuple(
 EXACT_AREA_CONTRACT_TYPE = "msabp_normalized_substrate_area_v1"
 REFERENCE_SUBSTRATE_AREA_MM2 = 2720.2
 RESPONSE_DUPLICATE_TOLERANCE = 1e-10
+SURROGATE_TARGET_TRANSFORMS = ("logit", "logit", "identity")
+SURROGATE_LOGIT_EPSILON = 1e-6
 
 
 class InputSpaceLike(Protocol):
@@ -105,17 +107,64 @@ class WireInputSpace:
 class SurrogateFitSettings:
     """Numerical settings for the three independent batched GPs."""
 
-    gp_training_steps: int = 50
+    gp_training_steps: int = 400
+    gp_kernel: str = "matern_5_2"
+    gp_noise_mode: str = "fixed"
     gp_fixed_noise_variance: float = 1e-6
+    gp_learned_noise_floor: float = 1e-4
+    gp_learned_noise_initial_variance: float = 1e-2
+    gp_posterior_observation_noise: bool = False
     gp_timeout_seconds: float = 600.0
+    uncertainty_calibration_factors: tuple[float, float, float] = (
+        1.1,
+        1.1,
+        1.25,
+    )
+    uncertainty_calibration_source: str = (
+        "matern52_logit_400_penalty_excluded_batches24_31_q95_guard"
+    )
+    bounded_moment_quadrature_order: int = 20
+    support_distance_quantile: float = 0.95
+    support_uncertainty_power: float = 1.0
+    support_uncertainty_cap: float = 4.0
 
     def __post_init__(self) -> None:
         if self.gp_training_steps <= 0:
             raise ValueError("gp_training_steps must be positive")
+        if self.gp_kernel not in {"rbf", "matern_5_2"}:
+            raise ValueError("gp_kernel must be 'rbf' or 'matern_5_2'")
+        if self.gp_noise_mode not in {"fixed", "learned"}:
+            raise ValueError("gp_noise_mode must be 'fixed' or 'learned'")
         if self.gp_fixed_noise_variance <= 0.0:
             raise ValueError("gp_fixed_noise_variance must be positive")
+        if self.gp_learned_noise_floor <= 0.0:
+            raise ValueError("gp_learned_noise_floor must be positive")
+        if self.gp_learned_noise_initial_variance < self.gp_learned_noise_floor:
+            raise ValueError(
+                "gp_learned_noise_initial_variance must be at least the noise floor"
+            )
         if self.gp_timeout_seconds <= 0.0:
             raise ValueError("gp_timeout_seconds must be positive")
+        factors = tuple(
+            float(value) for value in self.uncertainty_calibration_factors
+        )
+        if len(factors) != len(EXPENSIVE_OBJECTIVE_INDICES):
+            raise ValueError("uncertainty calibration requires three factors")
+        if not all(math.isfinite(value) and value >= 1.0 for value in factors):
+            raise ValueError(
+                "uncertainty calibration factors must be finite and at least one"
+            )
+        object.__setattr__(self, "uncertainty_calibration_factors", factors)
+        if not self.uncertainty_calibration_source.strip():
+            raise ValueError("uncertainty calibration source must be non-empty")
+        if self.bounded_moment_quadrature_order < 8:
+            raise ValueError("bounded moment quadrature order must be at least eight")
+        if not 0.0 < self.support_distance_quantile <= 1.0:
+            raise ValueError("support_distance_quantile must lie in (0, 1]")
+        if self.support_uncertainty_power < 0.0:
+            raise ValueError("support_uncertainty_power must be non-negative")
+        if self.support_uncertainty_cap < 1.0:
+            raise ValueError("support_uncertainty_cap must be at least one")
 
 
 @dataclass(frozen=True)
@@ -196,6 +245,134 @@ class ObjectiveScaler:
             "center": self.center.tolist(),
             "scale": self.scale.tolist(),
             "standardized_penalty": self.standardized_penalty.tolist(),
+        }
+
+
+@dataclass(frozen=True)
+class SurrogateTargetScaler:
+    """Model-space transform for the three expensive objectives."""
+
+    center: np.ndarray
+    scale: np.ndarray
+    epsilon: float = SURROGATE_LOGIT_EPSILON
+
+    def __post_init__(self) -> None:
+        center = np.asarray(self.center, dtype=np.float64)
+        scale = np.asarray(self.scale, dtype=np.float64)
+        expected = (len(EXPENSIVE_OBJECTIVE_INDICES),)
+        if center.shape != expected or scale.shape != expected:
+            raise ValueError("surrogate target arrays must have shape (3,)")
+        if not np.isfinite(center).all() or not np.isfinite(scale).all():
+            raise ValueError("surrogate target scaler values must be finite")
+        if np.any(scale <= 0.0):
+            raise ValueError("surrogate target scales must be positive")
+        if not 0.0 < self.epsilon < 0.5:
+            raise ValueError("surrogate logit epsilon must lie in (0, 0.5)")
+        object.__setattr__(self, "center", center)
+        object.__setattr__(self, "scale", scale)
+
+    @staticmethod
+    def _sigmoid(values: np.ndarray) -> np.ndarray:
+        clipped = np.clip(np.asarray(values, dtype=np.float64), -40.0, 40.0)
+        return 1.0 / (1.0 + np.exp(-clipped))
+
+    def _forward_physical(self, values: np.ndarray) -> np.ndarray:
+        physical = np.asarray(values, dtype=np.float64)
+        if physical.ndim != 2 or physical.shape[1] != len(
+            EXPENSIVE_OBJECTIVE_INDICES
+        ):
+            raise ValueError("expensive objective array must have shape (n, 3)")
+        if not np.isfinite(physical).all():
+            raise ValueError("expensive objective values must be finite")
+        bounded = physical[:, :2]
+        tolerance = 1e-12
+        if np.any(bounded < -tolerance) or np.any(bounded > 1.0 + tolerance):
+            raise ValueError("S11 and efficiency-loss targets must lie in [0, 1]")
+        transformed = physical.copy()
+        bounded = np.clip(bounded, self.epsilon, 1.0 - self.epsilon)
+        transformed[:, :2] = np.log(bounded) - np.log1p(-bounded)
+        return transformed
+
+    @classmethod
+    def fit(cls, values: np.ndarray) -> "SurrogateTargetScaler":
+        provisional = cls(
+            center=np.zeros(len(EXPENSIVE_OBJECTIVE_INDICES)),
+            scale=np.ones(len(EXPENSIVE_OBJECTIVE_INDICES)),
+        )
+        transformed = provisional._forward_physical(values)
+        center = np.median(transformed, axis=0)
+        q25, q75 = np.percentile(transformed, [25.0, 75.0], axis=0)
+        normalized_iqr = (q75 - q25) / 1.3489795003921634
+        normalized_mad = (
+            np.median(np.abs(transformed - center), axis=0)
+            * 1.482602218505602
+        )
+        scale = np.maximum(normalized_iqr, normalized_mad)
+        standard_deviation = np.std(transformed, axis=0)
+        scale = np.where(scale > 1e-12, scale, standard_deviation)
+        scale = np.where(scale > 1e-12, scale, 1.0)
+        return cls(center=center, scale=scale)
+
+    def transform(self, values: np.ndarray) -> np.ndarray:
+        transformed = self._forward_physical(values)
+        return (transformed - self.center) / self.scale
+
+    def inverse_prediction(
+        self,
+        mean: np.ndarray,
+        std: np.ndarray,
+        *,
+        quadrature_order: int = 20,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        model_mean = np.asarray(mean, dtype=np.float64)
+        model_std = np.asarray(std, dtype=np.float64)
+        if model_mean.ndim != 2 or model_std.shape != model_mean.shape:
+            raise ValueError("surrogate mean and std must be equal-size 2-D arrays")
+        if model_mean.shape[1] != len(EXPENSIVE_OBJECTIVE_INDICES):
+            raise ValueError("surrogate prediction must have three columns")
+        if not np.isfinite(model_mean).all() or not np.isfinite(model_std).all():
+            raise ValueError("surrogate prediction must be finite")
+        if np.any(model_std < 0.0):
+            raise ValueError("surrogate standard deviations must be non-negative")
+        if quadrature_order < 8:
+            raise ValueError("quadrature_order must be at least eight")
+
+        latent_mean = model_mean * self.scale + self.center
+        latent_std = model_std * self.scale
+        physical_mean = latent_mean.copy()
+        physical_std = latent_std.copy()
+        nodes, weights = np.polynomial.hermite.hermgauss(quadrature_order)
+        samples = latent_mean[:, :2, None] + (
+            math.sqrt(2.0) * latent_std[:, :2, None] * nodes[None, None, :]
+        )
+        bounded_samples = self._sigmoid(samples)
+        normalized_weights = weights / math.sqrt(math.pi)
+        bounded_mean = np.sum(
+            bounded_samples * normalized_weights[None, None, :],
+            axis=2,
+        )
+        bounded_second_moment = np.sum(
+            bounded_samples**2 * normalized_weights[None, None, :],
+            axis=2,
+        )
+        physical_mean[:, :2] = bounded_mean
+        bounded_std = np.sqrt(
+            np.maximum(bounded_second_moment - bounded_mean**2, 0.0)
+        )
+        physical_std[:, :2] = np.where(
+            latent_std[:, :2] <= np.finfo(np.float64).eps,
+            0.0,
+            bounded_std,
+        )
+        return physical_mean, physical_std
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "objective_names": list(EXPENSIVE_OBJECTIVE_NAMES),
+            "transforms": list(SURROGATE_TARGET_TRANSFORMS),
+            "center": self.center.tolist(),
+            "scale": self.scale.tolist(),
+            "logit_epsilon": float(self.epsilon),
         }
 
 
@@ -451,6 +628,14 @@ def build_request_payload(
             "expensive_indices": list(EXPENSIVE_OBJECTIVE_INDICES),
             "exact_indices": list(EXACT_OBJECTIVE_INDICES),
             "cap_gain_note": "linear-power angle/frequency average converted to dBi",
+            "surrogate_target_transforms": {
+                name: transform
+                for name, transform in zip(
+                    EXPENSIVE_OBJECTIVE_NAMES,
+                    SURROGATE_TARGET_TRANSFORMS,
+                )
+            },
+            "penalty_rows_in_gp_fit": False,
             "exact_objective": _exact_area_contract(space),
         },
         "krvea_config": asdict(config),
@@ -489,6 +674,10 @@ def _botorch_imports() -> dict[str, Any]:
         from botorch.exceptions.warnings import InputDataWarning
         from botorch.fit import fit_gpytorch_mll_torch
         from botorch.models import SingleTaskGP
+        from botorch.models.utils.gpytorch_modules import (
+            get_covar_module_with_dim_scaled_prior,
+        )
+        from gpytorch.constraints import GreaterThan
         from gpytorch.mlls import ExactMarginalLogLikelihood
     except ImportError as exc:  # pragma: no cover - exercised on deployment hosts
         raise RuntimeError(
@@ -499,6 +688,10 @@ def _botorch_imports() -> dict[str, Any]:
         "InputDataWarning": InputDataWarning,
         "fit_gpytorch_mll_torch": fit_gpytorch_mll_torch,
         "SingleTaskGP": SingleTaskGP,
+        "get_covar_module_with_dim_scaled_prior": (
+            get_covar_module_with_dim_scaled_prior
+        ),
+        "GreaterThan": GreaterThan,
         "ExactMarginalLogLikelihood": ExactMarginalLogLikelihood,
     }
 
@@ -511,6 +704,18 @@ def _fit_surrogate_predictor(
     device_name: str,
     seed: int,
 ) -> tuple[krvea.SurrogatePredictor, dict[str, Any]]:
+    x_values = np.asarray(train_x, dtype=np.float64)
+    y_values = np.asarray(train_y_standardized, dtype=np.float64)
+    if x_values.ndim != 2 or y_values.shape != (
+        len(x_values),
+        len(EXPENSIVE_OBJECTIVE_INDICES),
+    ):
+        raise ValueError("surrogate training arrays have incompatible shapes")
+    if len(x_values) < 2:
+        raise ValueError("surrogate fitting requires at least two successful rows")
+    if not np.isfinite(x_values).all() or not np.isfinite(y_values).all():
+        raise ValueError("surrogate training arrays must be finite")
+
     runtime = _botorch_imports()
     torch = runtime["torch"]
     torch.set_default_dtype(torch.float64)
@@ -526,25 +731,42 @@ def _fit_surrogate_predictor(
         torch.cuda.manual_seed_all(int(seed))
     torch.manual_seed(int(seed))
 
-    x_tensor = torch.as_tensor(train_x, dtype=torch.float64, device=device)
+    x_tensor = torch.as_tensor(x_values, dtype=torch.float64, device=device)
     y_tensor = torch.as_tensor(
-        train_y_standardized,
+        y_values,
         dtype=torch.float64,
         device=device,
     )
-    y_variance = torch.full_like(y_tensor, settings.gp_fixed_noise_variance)
+    batch_shape = torch.Size([y_tensor.shape[-1]])
+    covariance = runtime["get_covar_module_with_dim_scaled_prior"](
+        ard_num_dims=x_tensor.shape[-1],
+        batch_shape=batch_shape,
+        use_rbf_kernel=settings.gp_kernel == "rbf",
+    )
+    model_kwargs: dict[str, Any] = {
+        "train_X": x_tensor,
+        "train_Y": y_tensor,
+        "covar_module": covariance,
+        "outcome_transform": None,
+    }
+    if settings.gp_noise_mode == "fixed":
+        model_kwargs["train_Yvar"] = torch.full_like(
+            y_tensor,
+            settings.gp_fixed_noise_variance,
+        )
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
             message="Data .* is not standardized.*",
             category=runtime["InputDataWarning"],
         )
-        model = runtime["SingleTaskGP"](
-            x_tensor,
-            y_tensor,
-            train_Yvar=y_variance,
-            outcome_transform=None,
+        model = runtime["SingleTaskGP"](**model_kwargs)
+    if settings.gp_noise_mode == "learned":
+        model.likelihood.noise_covar.register_constraint(
+            "raw_noise",
+            runtime["GreaterThan"](settings.gp_learned_noise_floor),
         )
+        model.likelihood.noise = settings.gp_learned_noise_initial_variance
     mll = runtime["ExactMarginalLogLikelihood"](model.likelihood, model)
     fit_started = perf_counter()
     fit_result = runtime["fit_gpytorch_mll_torch"](
@@ -555,30 +777,125 @@ def _fit_surrogate_predictor(
     model.eval()
     fit_seconds = perf_counter() - fit_started
 
+    pairwise = np.linalg.norm(
+        x_values[:, None, :] - x_values[None, :, :],
+        axis=2,
+    ) / math.sqrt(x_values.shape[1])
+    np.fill_diagonal(pairwise, np.inf)
+    nearest_training = np.min(pairwise, axis=1)
+    support_radius = float(
+        np.quantile(nearest_training, settings.support_distance_quantile)
+    )
+    support_radius = max(support_radius, np.finfo(np.float64).eps)
+    calibration_factors = np.asarray(
+        settings.uncertainty_calibration_factors,
+        dtype=np.float64,
+    )
+
+    def nearest_support_distance(values: np.ndarray) -> np.ndarray:
+        distances = np.full(len(values), np.inf, dtype=np.float64)
+        chunk_size = 256
+        for start in range(0, len(values), chunk_size):
+            stop = min(start + chunk_size, len(values))
+            chunk = values[start:stop]
+            pairwise_chunk = np.linalg.norm(
+                chunk[:, None, :] - x_values[None, :, :],
+                axis=2,
+            ) / math.sqrt(x_values.shape[1])
+            distances[start:stop] = np.min(pairwise_chunk, axis=1)
+        return distances
+
     def predictor(unit_values: np.ndarray) -> krvea.SurrogatePrediction:
         values = np.asarray(unit_values, dtype=np.float64)
+        if values.ndim != 2 or values.shape[1] != x_values.shape[1]:
+            raise ValueError("surrogate query has the wrong shape")
         query = torch.as_tensor(values, dtype=torch.float64, device=device)
         with torch.no_grad():
-            posterior = model.posterior(query, observation_noise=False)
+            posterior = model.posterior(
+                query,
+                observation_noise=settings.gp_posterior_observation_noise,
+            )
             mean = posterior.mean.detach().cpu().numpy().astype(np.float64, copy=False)
             variance = posterior.variance.detach().cpu().numpy().astype(
                 np.float64,
                 copy=False,
             )
-        return krvea.SurrogatePrediction(
-            mean=mean,
-            std=np.sqrt(np.maximum(variance, 0.0)),
+        raw_std = np.sqrt(np.maximum(variance, 0.0))
+        support_ratio = np.maximum(
+            1.0,
+            nearest_support_distance(values) / support_radius,
         )
+        support_multiplier = np.clip(
+            support_ratio**settings.support_uncertainty_power,
+            1.0,
+            settings.support_uncertainty_cap,
+        )
+        calibrated_std = (
+            raw_std
+            * calibration_factors[None, :]
+            * support_multiplier[:, None]
+        )
+        return krvea.SurrogatePrediction(mean=mean, std=calibrated_std)
 
+    fit_status = getattr(fit_result, "status", None)
+    learned_noise: list[float] | None = None
+    if settings.gp_noise_mode == "learned":
+        learned_noise = (
+            model.likelihood.noise.detach()
+            .cpu()
+            .numpy()
+            .astype(np.float64, copy=False)
+            .reshape(-1)
+            .tolist()
+        )
+    lengthscales = (
+        model.covar_module.lengthscale.detach()
+        .cpu()
+        .numpy()
+        .astype(np.float64, copy=False)
+        .reshape(len(EXPENSIVE_OBJECTIVE_INDICES), -1)
+    )
+
+    fit_objective = getattr(fit_result, "fval", math.nan)
     diagnostics: dict[str, Any] = {
         "device": str(device),
         "dtype": "float64",
         "torch_version": str(torch.__version__),
         "gp_fit_seconds": float(fit_seconds),
         "gp_training_steps": int(settings.gp_training_steps),
+        "gp_kernel": settings.gp_kernel,
+        "gp_noise_mode": settings.gp_noise_mode,
         "gp_fixed_noise_variance": float(settings.gp_fixed_noise_variance),
+        "gp_learned_noise": learned_noise,
+        "gp_posterior_observation_noise": bool(
+            settings.gp_posterior_observation_noise
+        ),
         "gp_fit_result_type": type(fit_result).__name__,
+        "gp_fit_step": int(getattr(fit_result, "step", -1)),
+        "gp_fit_status": (
+            str(getattr(fit_status, "name", fit_status))
+            if fit_status is not None
+            else None
+        ),
+        "gp_fit_message": getattr(fit_result, "message", None),
+        "gp_fit_objective": (
+            float(fit_objective) if fit_objective is not None else math.nan
+        ),
         "gp_output_count": len(EXPENSIVE_OBJECTIVE_INDICES),
+        "gp_ard_lengthscales": lengthscales.tolist(),
+        "uncertainty_calibration": {
+            "factors": calibration_factors.tolist(),
+            "source": settings.uncertainty_calibration_source,
+        },
+        "support_calibration": {
+            "distance_metric": "euclidean_div_sqrt_dimension",
+            "training_radius_quantile": float(
+                settings.support_distance_quantile
+            ),
+            "training_radius": support_radius,
+            "uncertainty_power": float(settings.support_uncertainty_power),
+            "uncertainty_cap": float(settings.support_uncertainty_cap),
+        },
     }
     if device.type == "cuda":
         diagnostics.update(
@@ -630,15 +947,33 @@ def run_request_payload(payload: Mapping[str, Any]) -> ProposalResult:
     )
     scaler = fit_objective_scaler(full, penalty)
     full_standardized = scaler.transform(full, is_penalty=penalty)
-    expensive_standardized = full_standardized[:, EXPENSIVE_OBJECTIVE_INDICES]
+    successful = ~penalty
+    target_scaler = SurrogateTargetScaler.fit(expensive[successful])
+    surrogate_targets = target_scaler.transform(expensive[successful])
 
-    predictor, fit_diagnostics = _fit_surrogate_predictor(
-        x,
-        expensive_standardized,
+    model_predictor, fit_diagnostics = _fit_surrogate_predictor(
+        x[successful],
+        surrogate_targets,
         settings=surrogate_settings,
         device_name=str(compute.get("device", "")),
         seed=config.seed,
     )
+
+    def objective_predictor(
+        unit_values: np.ndarray,
+    ) -> krvea.SurrogatePrediction:
+        model_prediction = model_predictor(unit_values)
+        mean_physical, std_physical = target_scaler.inverse_prediction(
+            model_prediction.mean,
+            model_prediction.std,
+            quadrature_order=surrogate_settings.bounded_moment_quadrature_order,
+        )
+        expensive_center = scaler.center[list(EXPENSIVE_OBJECTIVE_INDICES)]
+        expensive_scale = scaler.scale[list(EXPENSIVE_OBJECTIVE_INDICES)]
+        return krvea.SurrogatePrediction(
+            mean=(mean_physical - expensive_center) / expensive_scale,
+            std=std_physical / expensive_scale,
+        )
 
     def standardized_exact_area(unit_values: np.ndarray) -> np.ndarray:
         physical = exact_normalized_area(unit_values, space, exact_contract)
@@ -646,7 +981,7 @@ def run_request_payload(payload: Mapping[str, Any]) -> ProposalResult:
 
     engine = krvea.KRVEA(
         config,
-        predictor,
+        objective_predictor,
         expensive_objective_indices=EXPENSIVE_OBJECTIVE_INDICES,
         exact_objective=standardized_exact_area,
         exact_objective_indices=EXACT_OBJECTIVE_INDICES,
@@ -660,6 +995,7 @@ def run_request_payload(payload: Mapping[str, Any]) -> ProposalResult:
     raw_values = space.denormalize(batch.unit_x)
     physical_mean = scaler.inverse(batch.predicted_mean)
     physical_std = scaler.std_to_physical(batch.predicted_std)
+    physical_mean[:, :2] = np.clip(physical_mean[:, :2], 0.0, 1.0)
     physical_std[:, 2] = 0.0
     core_diagnostics = asdict(batch.diagnostics)
     diagnostics = {
@@ -668,6 +1004,7 @@ def run_request_payload(payload: Mapping[str, Any]) -> ProposalResult:
         **core_diagnostics,
         "iteration": int(payload.get("iteration", 0)),
         "objective_scaler": scaler.to_dict(),
+        "surrogate_target_scaler": target_scaler.to_dict(),
         "objective_contract": {
             "semantics": "all_minimize",
             "names": list(OBJECTIVE_NAMES),
@@ -677,7 +1014,11 @@ def run_request_payload(payload: Mapping[str, Any]) -> ProposalResult:
         },
         "surrogate": fit_diagnostics,
         "krvea": core_diagnostics,
-        "training": dict(_mapping(training.get("summary"), "training.summary")),
+        "training": {
+            **dict(_mapping(training.get("summary"), "training.summary")),
+            "gp_training_observations": int(np.sum(successful)),
+            "penalty_observations_excluded_from_gp": int(np.sum(penalty)),
+        },
     }
     return ProposalResult(
         unit_values=batch.unit_x,
@@ -919,6 +1260,7 @@ __all__ = [
     "REFERENCE_SUBSTRATE_AREA_MM2",
     "RemoteProposalConfig",
     "SurrogateFitSettings",
+    "SurrogateTargetScaler",
     "WireInputSpace",
     "build_request_payload",
     "exact_normalized_area",

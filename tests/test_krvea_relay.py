@@ -103,6 +103,13 @@ def test_request_is_compact_and_has_explicit_objective_contract() -> None:
     assert payload["objective_contract"]["names"] == list(krvea_relay.OBJECTIVE_NAMES)
     assert payload["objective_contract"]["expensive_indices"] == [0, 1, 3]
     assert payload["objective_contract"]["exact_indices"] == [2]
+    assert payload["objective_contract"]["penalty_rows_in_gp_fit"] is False
+    assert payload["surrogate_settings"]["gp_kernel"] == "matern_5_2"
+    assert payload["surrogate_settings"]["uncertainty_calibration_factors"] == (
+        1.1,
+        1.1,
+        1.25,
+    )
     assert payload["objective_contract"]["exact_objective"]["reference_area_mm2"] == pytest.approx(2720.2)
     assert payload["previous_empty_reference_count"] == 40
     assert payload["training"]["summary"]["penalty_observations"] == 1
@@ -136,6 +143,74 @@ def test_robust_scaler_is_safe_for_constant_successful_columns() -> None:
     assert np.allclose(scaler.scale, 1.0)
     assert np.isfinite(standardized).all()
     assert np.all(standardized[-1] > standardized[:-1])
+
+
+def test_surrogate_target_scaler_is_bounded_and_round_trips_zero_variance() -> None:
+    physical = np.asarray(
+        [
+            [0.4, 0.2, -3.0],
+            [0.6, 0.3, -1.0],
+            [0.8, 0.7, 2.0],
+        ],
+        dtype=np.float64,
+    )
+    scaler = krvea_relay.SurrogateTargetScaler.fit(physical)
+    model_values = scaler.transform(physical)
+
+    recovered_mean, recovered_std = scaler.inverse_prediction(
+        model_values,
+        np.zeros_like(model_values),
+    )
+    wide_mean, wide_std = scaler.inverse_prediction(
+        np.asarray([[-100.0, 100.0, 0.0]]),
+        np.asarray([[10.0, 10.0, 1.0]]),
+    )
+
+    assert np.allclose(recovered_mean, physical, atol=1e-12)
+    assert np.all(recovered_std == 0.0)
+    assert np.all((wide_mean[:, :2] >= 0.0) & (wide_mean[:, :2] <= 1.0))
+    assert np.all((wide_std[:, :2] >= 0.0) & (wide_std[:, :2] <= 0.5))
+
+
+def test_worker_excludes_penalty_rows_from_gp_fit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _request()
+    request["compute"]["device"] = "cpu"
+    captured: dict[str, np.ndarray] = {}
+
+    def fake_fit(train_x, train_y, **_kwargs):
+        captured["x"] = np.asarray(train_x)
+        captured["y"] = np.asarray(train_y)
+
+        def predictor(unit_values):
+            count = len(unit_values)
+            return krvea.SurrogatePrediction(
+                mean=np.zeros((count, 3)),
+                std=np.full((count, 3), 0.1),
+            )
+
+        return predictor, {"device": "cpu", "dtype": "float64"}
+
+    monkeypatch.setattr(
+        krvea_relay,
+        "_fit_surrogate_predictor",
+        fake_fit,
+    )
+
+    result = krvea_relay.run_request_payload(request)
+
+    assert captured["x"].shape == (2, 11)
+    assert captured["y"].shape == (2, 3)
+    assert result.diagnostics["training"]["gp_training_observations"] == 2
+    assert (
+        result.diagnostics["training"]["penalty_observations_excluded_from_gp"]
+        == 1
+    )
+    assert np.all(
+        (result.predicted_mean[:, :2] >= 0.0)
+        & (result.predicted_mean[:, :2] <= 1.0)
+    )
 
 
 def test_exact_area_contract_is_one_at_reference_dimensions() -> None:

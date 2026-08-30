@@ -6,7 +6,7 @@ proposal worker; the two configured Maids remain the expensive-evaluation
 workers.  All objectives use minimization semantics internally.
 
 F5 uses the constants below.  A normal run still requires typing ``RUN``.
-Use ``--prepare-only`` to validate/cache the 512 historical observations, or
+Use ``--prepare-only`` to validate/cache all configured historical observations, or
 ``--stop-after-proposal`` to persist one resumable proposal without CST.
 """
 
@@ -49,12 +49,13 @@ from msabp_opt.simulation.distributed.state import PrincessState  # noqa: E402
 from scripts.automation import antenna_sampler  # noqa: E402
 
 
-F5_PLAN_ID = "msabp-krvea-11var-smoke-128-001"
+F5_PLAN_ID = "msabp-krvea-11var-calibrated-64-002"
 F5_SOURCE_DIRECTORIES = (
     REPOSITORY_ROOT / "results" / "raw" / "doe-11var-branch-up-lhs-512-001",
+    REPOSITORY_ROOT / "results" / "raw" / "msabp-krvea-11var-smoke-128-001",
 )
 F5_OUTPUT_DIRECTORY = REPOSITORY_ROOT / "results" / "raw" / F5_PLAN_ID
-F5_TOTAL_BUDGET = 128
+F5_TOTAL_BUDGET = 64
 F5_Q = 4
 F5_BAND_GHZ = (3.1, 4.8)
 F5_DEVICE_IDS = ("convallariag5", "coconutg2")
@@ -67,7 +68,7 @@ DEVICE_CONFIG = DEFAULT_DEVICE_CONFIG_PATH
 PROJECT_TEMPLATE = REPOSITORY_ROOT / "simulations" / "models" / "msa-bp.cst"
 PRINCESS_SCRIPT = REPOSITORY_ROOT / "scripts" / "simulation" / "princess.py"
 
-EXPECTED_INITIAL_TRAINING_COUNT = 512
+MINIMUM_INITIAL_TRAINING_COUNT = 512
 NOMINAL_AREA_REFERENCE_MM2 = 2720.2
 PENALTY_WORST_S11 = 1.0
 PENALTY_MEAN_TOT_EFF = 0.0
@@ -75,9 +76,16 @@ PENALTY_TOT_EFF_LOSS = 1.0
 PENALTY_NORMALIZED_AREA = 2.0
 PENALTY_CAP_GAIN_LINEAR = 10.0
 PENALTY_CAP_GAIN_DBI = 10.0
-GP_TRAINING_STEPS = 50
+GP_TRAINING_STEPS = 400
+GP_KERNEL = "matern_5_2"
+GP_NOISE_MODE = "fixed"
 GP_FIXED_NOISE_VARIANCE = 1e-6
+GP_POSTERIOR_OBSERVATION_NOISE = False
 GP_TIMEOUT_SECONDS = 600.0
+UNCERTAINTY_CALIBRATION_FACTORS = (1.1, 1.1, 1.25)
+UNCERTAINTY_CALIBRATION_SOURCE = (
+    "matern52_logit_400_penalty_excluded_batches24_31_q95_guard"
+)
 UPSTREAM_KRVEA_COMMIT = "1f32028fb974e2b5739eb795a4a008b6edc1a703"
 
 PLAN_FILENAME = "optimization_plan.json"
@@ -87,7 +95,7 @@ OBSERVATIONS_FILENAME = "observations.csv"
 HISTORY_OBSERVATIONS_FILENAME = "history_observations.csv"
 HISTORY_CACHE_META_FILENAME = "history_observations.meta.json"
 CAP_CACHE_DIRECTORY_NAME = "cap_gain_cache"
-PLAN_SCHEMA_VERSION = 1
+PLAN_SCHEMA_VERSION = 2
 STATE_SCHEMA_VERSION = 1
 
 
@@ -121,7 +129,12 @@ F5_PROPOSAL = krvea.KRVEAConfig(
     reference_partitions=7,
     q=F5_Q,
     inner_evaluations=10_000,
-    seed=20260829,
+    seed=20260830,
+    conservative_beta=1.645,
+    uncertainty_scale_mode="already_standardized",
+    exploration_slots=1,
+    exploration_novelty_weight=1.0,
+    exploration_pool_size=2048,
 )
 
 
@@ -141,6 +154,23 @@ class CampaignConfig:
     coordinate_quantum_mm: float = 0.01
     allow_disconnected_conductor: bool = False
     max_attempts: int = 3
+
+
+def surrogate_fit_settings() -> Any:
+    """Return the frozen surrogate contract used by plans and worker requests."""
+
+    from msabp_opt.optimization import krvea_relay
+
+    return krvea_relay.SurrogateFitSettings(
+        gp_training_steps=GP_TRAINING_STEPS,
+        gp_kernel=GP_KERNEL,
+        gp_noise_mode=GP_NOISE_MODE,
+        gp_fixed_noise_variance=GP_FIXED_NOISE_VARIANCE,
+        gp_posterior_observation_noise=GP_POSTERIOR_OBSERVATION_NOISE,
+        gp_timeout_seconds=GP_TIMEOUT_SECONDS,
+        uncertainty_calibration_factors=UNCERTAINTY_CALIBRATION_FACTORS,
+        uncertainty_calibration_source=UNCERTAINTY_CALIBRATION_SOURCE,
+    )
 
 
 def _utc_now() -> str:
@@ -242,29 +272,28 @@ def _validate_sampling_contract(path: Path) -> None:
 
 def _validate_config(config: CampaignConfig) -> CampaignConfig:
     validate_run_id(config.plan_id)
-    if config.total_budget != F5_TOTAL_BUDGET:
-        raise ValueError("this smoke plan requires exactly 128 new evaluations")
-    if config.proposal.q != F5_Q:
-        raise ValueError("this smoke plan requires q=4")
+    if config.total_budget <= 0:
+        raise ValueError("K-RVEA evaluation budget must be positive")
     if config.proposal.n_variables != len(krvea_data.ACTIVE_PARAMETER_NAMES):
         raise ValueError("K-RVEA proposal must use the authoritative 11 variables")
     if config.proposal.n_objectives != 4:
         raise ValueError("K-RVEA proposal must use four objectives")
-    if len(config.source_directories) != 1:
-        raise ValueError("this smoke plan requires exactly one historical source")
-    if tuple(config.device_ids) != F5_DEVICE_IDS:
-        raise ValueError(
-            "this smoke plan requires Princess devices convallariag5,coconutg2"
-        )
+    if not config.source_directories:
+        raise ValueError("K-RVEA requires at least one historical source")
+    if not config.device_ids or len(set(config.device_ids)) != len(config.device_ids):
+        raise ValueError("Princess device IDs must be non-empty and unique")
     low, high = config.band_ghz
     if not low < high:
         raise ValueError("band must satisfy low < high")
     sources = _unique_resolved_paths(config.source_directories)
     output = config.output_directory.expanduser().resolve()
-    if str(output).casefold() == str(sources[0]).casefold():
+    if any(str(output).casefold() == str(source).casefold() for source in sources):
         raise ValueError("the output is an automatic source and cannot be historical")
-    if not sources[0].is_dir():
-        raise FileNotFoundError(f"historical source does not exist: {sources[0]}")
+    missing_sources = [source for source in sources if not source.is_dir()]
+    if missing_sources:
+        raise FileNotFoundError(
+            f"historical source does not exist: {missing_sources[0]}"
+        )
     for path, label in (
         (config.sampling_config, "sampling config"),
         (config.device_config, "device config"),
@@ -310,15 +339,19 @@ def _control_directory(config: CampaignConfig) -> Path:
 
 
 def _history_cache_contract(config: CampaignConfig) -> dict[str, Any]:
-    source = config.source_directories[0]
     cap_gain_source = REPOSITORY_ROOT / "scripts" / "postprocessing" / "cap_gain.py"
     return {
-        "schema_version": 1,
-        "source_directory": str(source),
-        "source_snapshot": _manifest_snapshot(source),
+        "schema_version": 2,
+        "source_snapshots": [
+            {
+                "source_directory": str(source),
+                **_manifest_snapshot(source),
+            }
+            for source in config.source_directories
+        ],
         "band_ghz": list(config.band_ghz),
         "sampling_config_sha256": _sha256(config.sampling_config),
-        "expected_trainable_count": EXPECTED_INITIAL_TRAINING_COUNT,
+        "minimum_trainable_count": MINIMUM_INITIAL_TRAINING_COUNT,
         "objective_extractor": {
             "schema_version": krvea_data.SCHEMA_VERSION,
             "cap_metric_version": krvea_data.CAP_METRIC_VERSION,
@@ -356,12 +389,19 @@ def load_or_build_history_cache(
         _atomic_write_csv(observations, frame_path)
         _atomic_write_json(meta_path, {"contract": contract, "created_at_utc": _utc_now()})
     dataset = krvea_data.build_dataset(observations)
-    if len(observations) != EXPECTED_INITIAL_TRAINING_COUNT or len(dataset.x_unit) != EXPECTED_INITIAL_TRAINING_COUNT:
+    if (
+        len(observations) < MINIMUM_INITIAL_TRAINING_COUNT
+        or len(dataset.x_unit) != len(observations)
+    ):
         raise RuntimeError(
-            "historical source must contain exactly 512 trainable, distinct designs; "
+            "historical sources must contain at least 512 trainable, distinct designs; "
             f"found rows={len(observations)}, distinct={len(dataset.x_unit)}"
         )
-    return observations, dataset, contract["source_snapshot"]
+    snapshot = {
+        "sources": contract["source_snapshots"],
+        "trainable_count": int(len(dataset.x_unit)),
+    }
+    return observations, dataset, snapshot
 
 
 def _plan_payload(
@@ -372,6 +412,9 @@ def _plan_payload(
     from msabp_opt.optimization import krvea_relay
 
     cap_gain_source = REPOSITORY_ROOT / "scripts" / "postprocessing" / "cap_gain.py"
+    historical_count = int(source_snapshot.get("trainable_count", 0))
+    if historical_count < MINIMUM_INITIAL_TRAINING_COUNT:
+        raise ValueError("historical snapshot lacks the minimum trainable count")
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
         "plan_id": config.plan_id,
@@ -389,12 +432,15 @@ def _plan_payload(
                 "22(1):129-142, 2018."
             ),
         },
-        "campaign": "512 historical + 128 new expensive evaluations",
+        "campaign": (
+            f"{historical_count} historical + {config.total_budget} "
+            "new expensive evaluations"
+        ),
         "total_budget": config.total_budget,
         "q": config.proposal.q,
         "band_ghz": list(config.band_ghz),
         "source_directories": [str(path) for path in config.source_directories],
-        "historical_training_count": EXPECTED_INITIAL_TRAINING_COUNT,
+        "historical_training_count": historical_count,
         "historical_source_snapshot": dict(source_snapshot),
         "output_directory": str(config.output_directory),
         "output_is_automatic_training_source": True,
@@ -450,18 +496,23 @@ def _plan_payload(
             "expensive_objective_indices": [0, 1, 3],
             "exact_objective_indices": [2],
             "dtype": "float64",
-            "target_standardization": "per expensive objective on GPU worker",
+            "target_standardization": (
+                "logit for bounded S11/efficiency-loss, identity for cap gain, "
+                "then per-target standardization on the GPU worker"
+            ),
+            "bounded_target_moments": "Gauss-Hermite logit-normal moments",
+            "penalty_rows_in_gp_fit": False,
+            "selection_risk_rule": "mu + conservative_beta * calibrated_sigma",
+            "reserved_exploration": (
+                "uncertainty plus maximin novelty from an independent unit-cube pool"
+            ),
             "objective_scaler": {
                 "fit_rows": "non_penalty_only",
                 "center": "median",
                 "scale": "max(normalized_iqr, normalized_mad, std, epsilon)",
                 "penalty": "greater_than_each_valid_standardized_max_by_3",
             },
-            "surrogate_settings": {
-                "gp_training_steps": GP_TRAINING_STEPS,
-                "gp_fixed_noise_variance": GP_FIXED_NOISE_VARIANCE,
-                "gp_timeout_seconds": GP_TIMEOUT_SECONDS,
-            },
+            "surrogate_settings": asdict(surrogate_fit_settings()),
             "remote": config.proposal_remote.to_dict(),
         },
         "simulation": {
@@ -492,7 +543,10 @@ def load_or_create_plan(
 ) -> dict[str, Any]:
     config.output_directory.mkdir(parents=True, exist_ok=True)
     path = config.output_directory / PLAN_FILENAME
-    expected = _plan_payload(config, input_space, source_snapshot)
+    # Compare the same representation that is persisted.  Dataclass ``asdict``
+    # preserves tuples, while JSON reads them back as lists; without this
+    # round-trip, an unchanged resumable campaign is falsely reported as drift.
+    expected = json.loads(json.dumps(_plan_payload(config, input_space, source_snapshot)))
     if not path.exists():
         if list(config.output_directory.glob("case_*")):
             raise RuntimeError("refusing to create a plan in a non-empty result directory")
@@ -776,11 +830,7 @@ def _request_remote_proposal(
         remaining_expensive_budget=remaining_budget,
         previous_empty_reference_count=previous_empty_reference_count,
         compute_device=config.proposal_remote.compute_device,
-        surrogate_settings=krvea_relay.SurrogateFitSettings(
-            gp_training_steps=GP_TRAINING_STEPS,
-            gp_fixed_noise_variance=GP_FIXED_NOISE_VARIANCE,
-            gp_timeout_seconds=GP_TIMEOUT_SECONDS,
-        ),
+        surrogate_settings=surrogate_fit_settings(),
     )
     control = _control_directory(config)
     request_path = control / f"batch_{batch_index:04d}_proposal_request.json"
@@ -1201,6 +1251,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--inner-evaluations", type=int, default=None)
     parser.add_argument("--population-size", type=int, default=None)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--conservative-beta", type=float, default=None)
+    parser.add_argument(
+        "--uncertainty-scale-mode",
+        choices=("objective_span", "already_standardized"),
+        default=None,
+    )
+    parser.add_argument("--exploration-slots", type=int, default=None)
+    parser.add_argument("--exploration-novelty-weight", type=float, default=None)
+    parser.add_argument("--exploration-pool-size", type=int, default=None)
     parser.add_argument("--proposal-device", default=None)
     parser.add_argument("--proposal-python", default=None)
     parser.add_argument("--proposal-compute-device", default=None)
@@ -1274,6 +1333,41 @@ def _config_from_args(args: argparse.Namespace) -> CampaignConfig:
                 )
             ),
             seed=int(saved_or(args.seed, "seed", F5_PROPOSAL.seed)),
+            conservative_beta=float(
+                saved_or(
+                    args.conservative_beta,
+                    "conservative_beta",
+                    F5_PROPOSAL.conservative_beta,
+                )
+            ),
+            uncertainty_scale_mode=str(
+                saved_or(
+                    args.uncertainty_scale_mode,
+                    "uncertainty_scale_mode",
+                    F5_PROPOSAL.uncertainty_scale_mode,
+                )
+            ),
+            exploration_slots=int(
+                saved_or(
+                    args.exploration_slots,
+                    "exploration_slots",
+                    F5_PROPOSAL.exploration_slots,
+                )
+            ),
+            exploration_novelty_weight=float(
+                saved_or(
+                    args.exploration_novelty_weight,
+                    "exploration_novelty_weight",
+                    F5_PROPOSAL.exploration_novelty_weight,
+                )
+            ),
+            exploration_pool_size=int(
+                saved_or(
+                    args.exploration_pool_size,
+                    "exploration_pool_size",
+                    F5_PROPOSAL.exploration_pool_size,
+                )
+            ),
         ),
         proposal_remote=RemoteProposalConfig(
             device_id=str(args.proposal_device or remote_saved.get("device_id", F5_PROPOSAL_REMOTE.device_id)),

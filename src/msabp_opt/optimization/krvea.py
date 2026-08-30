@@ -71,6 +71,11 @@ class KRVEAConfig:
     apd_alpha: float = 1.0
     empty_growth_fraction: float = 0.05
     uniqueness_tolerance: float = 1e-10
+    conservative_beta: float = 0.0
+    uncertainty_scale_mode: str = "objective_span"
+    exploration_slots: int = 0
+    exploration_novelty_weight: float = 1.0
+    exploration_pool_size: int = 2048
 
     def __post_init__(self) -> None:
         if self.n_variables <= 0:
@@ -101,6 +106,24 @@ class KRVEAConfig:
             raise ValueError("empty_growth_fraction must be non-negative")
         if self.uniqueness_tolerance < 0.0:
             raise ValueError("uniqueness_tolerance must be non-negative")
+        if not math.isfinite(self.conservative_beta) or self.conservative_beta < 0.0:
+            raise ValueError("conservative_beta must be finite and non-negative")
+        if self.uncertainty_scale_mode not in {"objective_span", "already_standardized"}:
+            raise ValueError(
+                "uncertainty_scale_mode must be 'objective_span' or "
+                "'already_standardized'"
+            )
+        if not 0 <= self.exploration_slots <= self.q:
+            raise ValueError("exploration_slots must lie in [0, q]")
+        if (
+            not math.isfinite(self.exploration_novelty_weight)
+            or self.exploration_novelty_weight < 0.0
+        ):
+            raise ValueError(
+                "exploration_novelty_weight must be finite and non-negative"
+            )
+        if self.exploration_pool_size <= 0:
+            raise ValueError("exploration_pool_size must be positive")
 
 
 @dataclass(frozen=True)
@@ -136,6 +159,12 @@ class ProposalDiagnostics:
     selected_reference_indices: tuple[int, ...] = field(default_factory=tuple)
     selected_apd: tuple[float, ...] = field(default_factory=tuple)
     selected_mean_std: tuple[float, ...] = field(default_factory=tuple)
+    conservative_beta: float = 0.0
+    reserved_exploration_count: int = 0
+    selected_nearest_archive_distance: tuple[float, ...] = field(
+        default_factory=tuple
+    )
+    selected_boundary_distance: tuple[float, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -207,6 +236,64 @@ def standardize_uncertainty(std: ArrayLike, objective_scale: ArrayLike) -> Float
     if not np.isfinite(scale).all() or np.any(scale <= 0.0):
         raise ValueError("objective scale must be finite and positive")
     return uncertainty / scale
+
+
+def conservative_objectives(
+    prediction: SurrogatePrediction,
+    beta: float,
+) -> FloatArray:
+    """Return pessimistic minimization objectives: mean plus beta times std."""
+
+    if not math.isfinite(beta) or beta < 0.0:
+        raise ValueError("conservative beta must be finite and non-negative")
+    return prediction.mean + beta * prediction.std
+
+
+def comparable_uncertainty(
+    std: ArrayLike,
+    objective_scale: ArrayLike,
+    mode: str,
+) -> FloatArray:
+    """Put uncertainty in comparable units without scaling it twice."""
+
+    uncertainty = np.asarray(std, dtype=np.float64)
+    if mode == "already_standardized":
+        if uncertainty.ndim != 2:
+            raise ValueError("surrogate standard deviations must be a 2-D array")
+        if not np.isfinite(uncertainty).all() or np.any(uncertainty < 0.0):
+            raise ValueError(
+                "surrogate standard deviations must be finite and non-negative"
+            )
+        return uncertainty
+    if mode == "objective_span":
+        return standardize_uncertainty(uncertainty, objective_scale)
+    raise ValueError(f"unsupported uncertainty scale mode: {mode}")
+
+
+def _nearest_distance(candidates: FloatArray, existing: FloatArray) -> FloatArray:
+    """Normalized Euclidean distance from every candidate to an archive."""
+
+    if len(candidates) == 0:
+        return np.empty(0, dtype=np.float64)
+    if len(existing) == 0:
+        return np.ones(len(candidates), dtype=np.float64)
+    nearest = np.full(len(candidates), np.inf, dtype=np.float64)
+    for start in range(0, len(candidates), 256):
+        stop = min(start + 256, len(candidates))
+        distances = np.linalg.norm(
+            candidates[start:stop, None, :] - existing[None, :, :],
+            axis=2,
+        )
+        nearest[start:stop] = np.min(distances, axis=1)
+    return nearest / math.sqrt(candidates.shape[1])
+
+
+def _zero_one(values: FloatArray) -> FloatArray:
+    array = np.asarray(values, dtype=np.float64)
+    span = float(np.max(array) - np.min(array))
+    if span <= np.finfo(np.float64).eps:
+        return np.zeros_like(array)
+    return (array - np.min(array)) / span
 
 
 def _reference_angles(reference_directions: FloatArray) -> FloatArray:
@@ -585,7 +672,15 @@ class KRVEA:
             random_x = rng.random((needed, config.n_variables))
             random_prediction = self._predict(random_x)
             population_x = np.vstack((x_archive, random_x))
-            population_y = np.vstack((y_archive, random_prediction.mean))
+            population_y = np.vstack(
+                (
+                    y_archive,
+                    conservative_objectives(
+                        random_prediction,
+                        config.conservative_beta,
+                    ),
+                )
+            )
 
         inner_used = 0
         generations = 0
@@ -609,7 +704,15 @@ class KRVEA:
             progress = inner_used / max(config.inner_evaluations, 1)
             penalty = config.n_objectives * progress**config.apd_alpha
             combined_x = np.vstack((population_x, offspring_x))
-            combined_y = np.vstack((population_y, offspring_prediction.mean))
+            combined_y = np.vstack(
+                (
+                    population_y,
+                    conservative_objectives(
+                        offspring_prediction,
+                        config.conservative_beta,
+                    ),
+                )
+            )
             population_x, population_y, _, _ = environmental_selection(
                 combined_x,
                 combined_y,
@@ -619,12 +722,20 @@ class KRVEA:
             )
 
         prediction = self._predict(population_x)
+        conservative_mean = conservative_objectives(
+            prediction,
+            config.conservative_beta,
+        )
         association, apd, _, objective_scale, _ = associate_by_apd(
-            prediction.mean,
+            conservative_mean,
             self.reference_directions,
             penalty=float(config.n_objectives),
         )
-        scaled_std = standardize_uncertainty(prediction.std, objective_scale)
+        scaled_std = comparable_uncertainty(
+            prediction.std,
+            objective_scale,
+            config.uncertainty_scale_mode,
+        )
         active_indices = np.unique(association)
         empty_count = len(self.reference_directions) - len(active_indices)
         previous_empty = (
@@ -639,10 +750,12 @@ class KRVEA:
         mode = "exploration" if explore else "exploitation"
 
         budgeted_q = min(config.q, remaining_expensive_budget)
+        reserved_exploration = min(config.exploration_slots, budgeted_q)
+        model_managed_q = budgeted_q - reserved_exploration
         selected: list[int] = []
         selected_directions: list[int] = []
-        if budgeted_q > 0 and len(active_indices) > 0:
-            cluster_count = min(budgeted_q, len(active_indices))
+        if model_managed_q > 0 and len(active_indices) > 0:
+            cluster_count = min(model_managed_q, len(active_indices))
             active_directions = self.reference_directions[active_indices]
             labels = _partition_directions(active_directions, cluster_count, rng)
             uncertainty = np.mean(
@@ -679,7 +792,7 @@ class KRVEA:
 
             # A cluster can contain only archived designs.  Fill from all
             # remaining model candidates while preserving the active mode.
-            if len(selected) < budgeted_q:
+            if len(selected) < model_managed_q:
                 uncertainty = np.mean(
                     scaled_std[:, self.expensive_objective_indices], axis=1
                 )
@@ -707,7 +820,7 @@ class KRVEA:
                         continue
                     selected.append(index)
                     selected_directions.append(int(association[index]))
-                    if len(selected) == budgeted_q:
+                    if len(selected) == model_managed_q:
                         break
 
         selected_array = np.asarray(selected, dtype=np.int64)
@@ -730,8 +843,8 @@ class KRVEA:
         # unit-cube pool only for the missing slots.  This is a fail-safe, not
         # part of the normal evolutionary path, and is explicitly diagnosed.
         random_fallback_count = 0
-        if len(proposal_x) < budgeted_q:
-            pool_size = max(1024, 64 * (budgeted_q - len(proposal_x)))
+        if len(proposal_x) < model_managed_q:
+            pool_size = max(1024, 64 * (model_managed_q - len(proposal_x)))
             fallback_x = rng.random((pool_size, config.n_variables))
             fallback_prediction = self._predict(fallback_x)
             (
@@ -741,13 +854,17 @@ class KRVEA:
                 fallback_scale,
                 _,
             ) = associate_by_apd(
-                fallback_prediction.mean,
+                conservative_objectives(
+                    fallback_prediction,
+                    config.conservative_beta,
+                ),
                 self.reference_directions,
                 penalty=float(config.n_objectives),
             )
-            fallback_scaled_std = standardize_uncertainty(
+            fallback_scaled_std = comparable_uncertainty(
                 fallback_prediction.std,
                 fallback_scale,
+                config.uncertainty_scale_mode,
             )
             fallback_uncertainty = np.mean(
                 fallback_scaled_std[:, self.expensive_objective_indices],
@@ -789,12 +906,92 @@ class KRVEA:
                 selected_apd_values.append(float(fallback_apd[index]))
                 mean_std_values.append(float(fallback_uncertainty[index]))
                 random_fallback_count += 1
+                if len(proposal_x) == model_managed_q:
+                    break
+            if len(proposal_x) != model_managed_q:
+                raise RuntimeError(
+                    "K-RVEA could not construct a complete unique proposal batch"
+                )
+
+        exploration_added = 0
+        if len(proposal_x) < budgeted_q:
+            missing = budgeted_q - len(proposal_x)
+            pool_size = max(config.exploration_pool_size, 64 * missing)
+            exploration_x = rng.random((pool_size, config.n_variables))
+            exploration_prediction = self._predict(exploration_x)
+            exploration_mean = conservative_objectives(
+                exploration_prediction,
+                config.conservative_beta,
+            )
+            (
+                exploration_association,
+                exploration_apd,
+                _,
+                exploration_scale,
+                _,
+            ) = associate_by_apd(
+                exploration_mean,
+                self.reference_directions,
+                penalty=float(config.n_objectives),
+            )
+            exploration_std = comparable_uncertainty(
+                exploration_prediction.std,
+                exploration_scale,
+                config.uncertainty_scale_mode,
+            )
+            exploration_uncertainty = np.mean(
+                exploration_std[:, self.expensive_objective_indices],
+                axis=1,
+            )
+            existing = np.vstack((x_archive, proposal_x))
+            novelty = _nearest_distance(exploration_x, existing)
+            score = _zero_one(exploration_uncertainty) + (
+                config.exploration_novelty_weight * _zero_one(novelty)
+            )
+            exploration_order = sorted(
+                range(pool_size),
+                key=lambda index: (
+                    -score[index],
+                    -exploration_uncertainty[index],
+                    -novelty[index],
+                    exploration_apd[index],
+                    index,
+                ),
+            )
+            for index in exploration_order:
+                if _is_duplicate(
+                    exploration_x[index],
+                    x_archive,
+                    config.uniqueness_tolerance,
+                ) or _is_duplicate(
+                    exploration_x[index],
+                    proposal_x,
+                    config.uniqueness_tolerance,
+                ):
+                    continue
+                proposal_x = np.vstack((proposal_x, exploration_x[index]))
+                proposal_mean = np.vstack(
+                    (proposal_mean, exploration_prediction.mean[index])
+                )
+                proposal_std = np.vstack(
+                    (proposal_std, exploration_prediction.std[index])
+                )
+                selected_directions.append(int(exploration_association[index]))
+                selected_apd_values.append(float(exploration_apd[index]))
+                mean_std_values.append(float(exploration_uncertainty[index]))
+                exploration_added += 1
                 if len(proposal_x) == budgeted_q:
                     break
             if len(proposal_x) != budgeted_q:
                 raise RuntimeError(
-                    "K-RVEA could not construct a complete unique proposal batch"
+                    "K-RVEA could not construct the reserved exploration candidates"
                 )
+
+        nearest_archive = _nearest_distance(proposal_x, x_archive)
+        boundary_distance = np.min(
+            np.minimum(proposal_x, 1.0 - proposal_x),
+            axis=1,
+        )
         diagnostics = ProposalDiagnostics(
             seed=config.seed,
             inner_budget=config.inner_evaluations,
@@ -814,6 +1011,14 @@ class KRVEA:
             selected_reference_indices=tuple(selected_directions),
             selected_apd=tuple(selected_apd_values),
             selected_mean_std=tuple(float(value) for value in mean_std_values),
+            conservative_beta=float(config.conservative_beta),
+            reserved_exploration_count=exploration_added,
+            selected_nearest_archive_distance=tuple(
+                float(value) for value in nearest_archive
+            ),
+            selected_boundary_distance=tuple(
+                float(value) for value in boundary_distance
+            ),
         )
         return ProposalBatch(
             unit_x=proposal_x,
@@ -832,6 +1037,8 @@ __all__ = [
     "SurrogatePrediction",
     "SurrogatePredictor",
     "associate_by_apd",
+    "comparable_uncertainty",
+    "conservative_objectives",
     "das_dennis_reference_directions",
     "environmental_selection",
     "normalize_objectives",

@@ -8,6 +8,8 @@ from msabp_opt.optimization.krvea import (
     KRVEAConfig,
     SurrogatePrediction,
     associate_by_apd,
+    comparable_uncertainty,
+    conservative_objectives,
     das_dennis_reference_directions,
     normalize_objectives,
     sbx_polynomial_offspring,
@@ -113,6 +115,28 @@ def test_uncertainty_is_scaled_to_comparable_objective_units() -> None:
     assert np.allclose(standardize_uncertainty(std, scale), 0.1)
 
 
+def test_standardized_uncertainty_is_not_scaled_twice() -> None:
+    std = np.asarray([[0.1, 0.2, 0.0, 0.4]])
+    scale = np.asarray([100.0, 200.0, 300.0, 400.0])
+
+    assert np.array_equal(
+        comparable_uncertainty(std, scale, "already_standardized"),
+        std,
+    )
+
+
+def test_conservative_minimization_score_penalizes_uncertainty() -> None:
+    prediction = SurrogatePrediction(
+        mean=np.asarray([[0.0, 1.0], [0.2, 1.0]]),
+        std=np.asarray([[1.0, 0.0], [0.0, 0.0]]),
+    )
+
+    scored = conservative_objectives(prediction, beta=1.645)
+
+    assert scored[0, 0] > scored[1, 0]
+    assert np.array_equal(scored[:, 1], prediction.mean[:, 1])
+
+
 def test_exact_objective_is_inserted_with_zero_uncertainty() -> None:
     optimizer = _optimizer(inner_evaluations=0)
     points = np.random.default_rng(3).random((8, 5))
@@ -152,6 +176,41 @@ def test_proposal_is_deterministic_unique_and_respects_q() -> None:
     assert first.diagnostics.inner_evaluations_used == 160
     assert first.diagnostics.proposed_count == 4
     assert first.diagnostics.mode == "exploration"
+
+
+def test_reserved_exploration_slot_is_unique_and_diagnosed() -> None:
+    archive_x, archive_y = _archive()
+    optimizer = KRVEA(
+        KRVEAConfig(
+            n_variables=5,
+            n_objectives=4,
+            reference_partitions=3,
+            population_size=28,
+            q=4,
+            inner_evaluations=160,
+            seed=41,
+            conservative_beta=1.645,
+            uncertainty_scale_mode="already_standardized",
+            exploration_slots=1,
+            exploration_pool_size=256,
+        ),
+        SmoothPredictor(),
+        expensive_objective_indices=(0, 1, 3),
+        exact_objective=exact_area,
+        exact_objective_indices=(2,),
+    )
+
+    batch = optimizer.propose(
+        archive_x,
+        archive_y,
+        remaining_expensive_budget=4,
+    )
+
+    assert batch.unit_x.shape == (4, 5)
+    assert batch.diagnostics.reserved_exploration_count == 1
+    assert len(batch.diagnostics.selected_nearest_archive_distance) == 4
+    assert len(batch.diagnostics.selected_boundary_distance) == 4
+    assert len(np.unique(np.round(batch.unit_x, 12), axis=0)) == 4
 
 
 def test_remaining_expensive_budget_is_a_strict_batch_cap() -> None:
