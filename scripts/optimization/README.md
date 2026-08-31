@@ -204,8 +204,9 @@ environment variables.
 
 `run_krvea.py` owns the four-objective K-RVEA campaigns.  The completed smoke
 campaign used 512 historical designs plus 128 new evaluations in `q=4`
-batches.  The current F5 defaults start a separate 64-evaluation calibrated
-continuation and use both completed folders (640 rows) as immutable history.
+batches, and the first calibrated continuation added another 64.  The current
+F5 defaults start a second 64-evaluation calibrated continuation and use all
+three completed folders (704 rows) as immutable history.
 Only the eleven variables frozen in
 `configs/optimization/krvea_11var_branch_up.json` are optimized; every worklist
 row materializes the other twelve parameters and preserves the authoritative
@@ -225,7 +226,7 @@ distance-from-training-support multiplier.  Selection uses the conservative
 minimization value `mean + 1.645 * calibrated_std`; one of every four points is
 reserved for uncertainty-plus-maximin exploration.
 
-First parse and cache all 640 historical objective records without SSH or CST:
+First parse and cache all 704 historical objective records without SSH or CST:
 
 ```powershell
 C:\Users\David\.conda\envs\cstpy\python.exe `
@@ -241,16 +242,18 @@ C:\Users\David\.conda\envs\cstpy\python.exe `
   scripts\optimization\run_krvea.py --stop-after-proposal
 ```
 
-Start or resume the calibrated 64-point campaign with the same script and type
-`RUN`, or pass `--yes`.  The equivalent fully explicit command is:
+Start or resume the second calibrated 64-point continuation with the same
+script and type `RUN`, or pass `--yes`.  The equivalent fully explicit command
+is:
 
 ```powershell
 C:\Users\David\.conda\envs\cstpy\python.exe `
   scripts\optimization\run_krvea.py `
-  --plan-id msabp-krvea-11var-calibrated-64-002 `
+  --plan-id msabp-krvea-11var-calibrated-64-003 `
   --source results\raw\doe-11var-branch-up-lhs-512-001 `
   --source results\raw\msabp-krvea-11var-smoke-128-001 `
-  --output results\raw\msabp-krvea-11var-calibrated-64-002 `
+  --source results\raw\msabp-krvea-11var-calibrated-64-002 `
+  --output results\raw\msabp-krvea-11var-calibrated-64-003 `
   --budget 64 --q 4 --yes
 ```
 

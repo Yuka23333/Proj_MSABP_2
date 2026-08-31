@@ -49,10 +49,11 @@ from msabp_opt.simulation.distributed.state import PrincessState  # noqa: E402
 from scripts.automation import antenna_sampler  # noqa: E402
 
 
-F5_PLAN_ID = "msabp-krvea-11var-calibrated-64-002"
+F5_PLAN_ID = "msabp-krvea-11var-calibrated-64-003"
 F5_SOURCE_DIRECTORIES = (
     REPOSITORY_ROOT / "results" / "raw" / "doe-11var-branch-up-lhs-512-001",
     REPOSITORY_ROOT / "results" / "raw" / "msabp-krvea-11var-smoke-128-001",
+    REPOSITORY_ROOT / "results" / "raw" / "msabp-krvea-11var-calibrated-64-002",
 )
 F5_OUTPUT_DIRECTORY = REPOSITORY_ROOT / "results" / "raw" / F5_PLAN_ID
 F5_TOTAL_BUDGET = 64
@@ -129,7 +130,7 @@ F5_PROPOSAL = krvea.KRVEAConfig(
     reference_partitions=7,
     q=F5_Q,
     inner_evaluations=10_000,
-    seed=20260830,
+    seed=20260831,
     conservative_beta=1.645,
     uncertainty_scale_mode="already_standardized",
     exploration_slots=1,
