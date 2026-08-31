@@ -261,6 +261,42 @@ The controller remains authoritative
 for budget and state, while `convallariag5` and `coconutg2` are the two CST
 Maid workers.  Re-running the command resumes the frozen active batch.
 
+### Isolated late-stage deep optimization
+
+`深度优化_krvea.py` is a separate entrypoint for the dense late stage after the
+three completed K-RVEA campaigns.  It intentionally does not replace the
+baseline policy in `run_krvea.py`, because its calibration has not been tested
+for the initial sparse-data phase.
+
+The frozen deep-stage plan is `msabp-krvea-11var-deep-64-004`: 768 historical
+observations plus 64 new four-objective evaluations in `q=4` batches.  It keeps
+the same Matérn-5/2 GPs and conservative `mean + 1.645 * std` selection, with
+two late-stage changes:
+
+- the S11 uncertainty calibration factor is raised from `1.1` to `2.5`; a
+  scale-only replay of round three changes one-sided coverage from 57/63
+  (90.5%) to 60/63 (95.2%);
+- one exploration candidate is reserved only in every second batch, reducing
+  the planned exploration share from 16/64 to 8/64 points.
+
+Prepare the immutable history cache and plan without SSH or CST:
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\optimization\深度优化_krvea.py --prepare-only
+```
+
+Start or resume the real campaign:
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\optimization\深度优化_krvea.py --yes
+```
+
+Re-running the same command resumes the frozen active batch.  The plan records
+the deep strategy source hash, surrogate calibration, and alternating
+exploration schedule so a baseline/deep-policy mix is rejected as drift.
+
 The implementation is an independent Python reimplementation informed by the
 authors' MATLAB repository at commit
 `1f32028fb974e2b5739eb795a4a008b6edc1a703`; the consulted checkout remains

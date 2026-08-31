@@ -155,6 +155,10 @@ class CampaignConfig:
     coordinate_quantum_mm: float = 0.01
     allow_disconnected_conductor: bool = False
     max_attempts: int = 3
+    surrogate_settings: Any | None = None
+    exploration_period_batches: int = 1
+    strategy_name: str = "baseline"
+    strategy_source: Path | None = None
 
 
 def surrogate_fit_settings() -> Any:
@@ -171,6 +175,37 @@ def surrogate_fit_settings() -> Any:
         gp_timeout_seconds=GP_TIMEOUT_SECONDS,
         uncertainty_calibration_factors=UNCERTAINTY_CALIBRATION_FACTORS,
         uncertainty_calibration_source=UNCERTAINTY_CALIBRATION_SOURCE,
+    )
+
+
+def campaign_surrogate_fit_settings(config: CampaignConfig) -> Any:
+    """Resolve an optional late-stage policy without changing baseline defaults."""
+
+    return (
+        config.surrogate_settings
+        if config.surrogate_settings is not None
+        else surrogate_fit_settings()
+    )
+
+
+def proposal_settings_for_batch(
+    config: CampaignConfig,
+    *,
+    batch_index: int,
+    q: int,
+) -> krvea.KRVEAConfig:
+    """Apply a deterministic exploration schedule to one proposal batch."""
+
+    exploration_slots = (
+        config.proposal.exploration_slots
+        if batch_index % config.exploration_period_batches == 0
+        else 0
+    )
+    return replace(
+        config.proposal,
+        q=q,
+        seed=config.proposal.seed + batch_index,
+        exploration_slots=min(exploration_slots, q),
     )
 
 
@@ -279,6 +314,10 @@ def _validate_config(config: CampaignConfig) -> CampaignConfig:
         raise ValueError("K-RVEA proposal must use the authoritative 11 variables")
     if config.proposal.n_objectives != 4:
         raise ValueError("K-RVEA proposal must use four objectives")
+    if config.exploration_period_batches <= 0:
+        raise ValueError("exploration_period_batches must be positive")
+    if not config.strategy_name.strip():
+        raise ValueError("strategy_name must be non-empty")
     if not config.source_directories:
         raise ValueError("K-RVEA requires at least one historical source")
     if not config.device_ids or len(set(config.device_ids)) != len(config.device_ids):
@@ -302,6 +341,13 @@ def _validate_config(config: CampaignConfig) -> CampaignConfig:
     ):
         if not Path(path).is_file():
             raise FileNotFoundError(f"{label} does not exist: {path}")
+    strategy_source = (
+        config.strategy_source.resolve()
+        if config.strategy_source is not None
+        else None
+    )
+    if strategy_source is not None and not strategy_source.is_file():
+        raise FileNotFoundError(f"strategy source does not exist: {strategy_source}")
     _validate_sampling_contract(config.sampling_config)
     if not np.isclose(
         krvea_data.reference_substrate_area_mm2(),
@@ -317,6 +363,7 @@ def _validate_config(config: CampaignConfig) -> CampaignConfig:
         sampling_config=config.sampling_config.resolve(),
         device_config=config.device_config.resolve(),
         project_template=config.project_template.resolve(),
+        strategy_source=strategy_source,
     )
 
 
@@ -413,6 +460,15 @@ def _plan_payload(
     from msabp_opt.optimization import krvea_relay
 
     cap_gain_source = REPOSITORY_ROOT / "scripts" / "postprocessing" / "cap_gain.py"
+    implementation_sha256 = {
+        "run_krvea": _sha256(__file__),
+        "krvea": _sha256(krvea.__file__),
+        "krvea_data": _sha256(krvea_data.__file__),
+        "krvea_relay": _sha256(krvea_relay.__file__),
+        "cap_gain": _sha256(cap_gain_source),
+    }
+    if config.strategy_source is not None:
+        implementation_sha256["strategy_source"] = _sha256(config.strategy_source)
     historical_count = int(source_snapshot.get("trainable_count", 0))
     if historical_count < MINIMUM_INITIAL_TRAINING_COUNT:
         raise ValueError("historical snapshot lacks the minimum trainable count")
@@ -421,6 +477,14 @@ def _plan_payload(
         "plan_id": config.plan_id,
         "created_at_utc": _utc_now(),
         "algorithm": "K-RVEA",
+        "strategy": {
+            "name": config.strategy_name,
+            "source": (
+                str(config.strategy_source)
+                if config.strategy_source is not None
+                else None
+            ),
+        },
         "provenance": {
             "implementation": "independent Python reimplementation",
             "upstream_repository": "https://github.com/tichugh/K-RVEA.git",
@@ -507,13 +571,18 @@ def _plan_payload(
             "reserved_exploration": (
                 "uncertainty plus maximin novelty from an independent unit-cube pool"
             ),
+            "exploration_schedule": {
+                "slots_per_exploration_batch": config.proposal.exploration_slots,
+                "period_batches": config.exploration_period_batches,
+                "first_exploration_batch_index": 0,
+            },
             "objective_scaler": {
                 "fit_rows": "non_penalty_only",
                 "center": "median",
                 "scale": "max(normalized_iqr, normalized_mad, std, epsilon)",
                 "penalty": "greater_than_each_valid_standardized_max_by_3",
             },
-            "surrogate_settings": asdict(surrogate_fit_settings()),
+            "surrogate_settings": asdict(campaign_surrogate_fit_settings(config)),
             "remote": config.proposal_remote.to_dict(),
         },
         "simulation": {
@@ -526,13 +595,7 @@ def _plan_payload(
         },
         "software": {
             "controller_python": platform.python_version(),
-            "implementation_sha256": {
-                "run_krvea": _sha256(__file__),
-                "krvea": _sha256(krvea.__file__),
-                "krvea_data": _sha256(krvea_data.__file__),
-                "krvea_relay": _sha256(krvea_relay.__file__),
-                "cap_gain": _sha256(cap_gain_source),
-            },
+            "implementation_sha256": implementation_sha256,
         },
     }
 
@@ -814,10 +877,10 @@ def _request_remote_proposal(
 ) -> Any:
     from msabp_opt.optimization import krvea_relay
 
-    settings = replace(
-        config.proposal,
+    settings = proposal_settings_for_batch(
+        config,
+        batch_index=batch_index,
         q=q,
-        seed=config.proposal.seed + batch_index,
     )
     penalty_mask = ~dataset.metadata["has_completed_result"].to_numpy(dtype=bool)
     request = krvea_relay.build_request_payload(
@@ -831,7 +894,7 @@ def _request_remote_proposal(
         remaining_expensive_budget=remaining_budget,
         previous_empty_reference_count=previous_empty_reference_count,
         compute_device=config.proposal_remote.compute_device,
-        surrogate_settings=surrogate_fit_settings(),
+        surrogate_settings=campaign_surrogate_fit_settings(config),
     )
     control = _control_directory(config)
     request_path = control / f"batch_{batch_index:04d}_proposal_request.json"
