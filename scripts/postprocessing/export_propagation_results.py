@@ -18,6 +18,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -42,6 +43,15 @@ DEFAULT_OUTPUT_DIRECTORY = (
     / "msa-bp-propagation-baseline-001"
 )
 S21_TREE_PATH = r"1D Results\S-Parameters\S2,1"
+S21_WORKER_PATH = Path(__file__).with_name("export_s21_results_worker.py")
+S21_CSV_COLUMNS = (
+    "frequency_ghz",
+    "s21_real",
+    "s21_imag",
+    "s21_magnitude",
+    "s21_magnitude_db",
+    "s21_phase_deg",
+)
 E_FIELD_TREE_PATTERN = re.compile(
     r"^2D/3D Results\\E-Field\\e-field \(f=([0-9]+(?:\.[0-9]+)?)\) \[([0-9]+)\]$"
 )
@@ -89,67 +99,94 @@ def _atomic_write_json(payload: dict[str, Any], path: Path) -> None:
     os.replace(temporary, path)
 
 
-def _atomic_write_s21_csv(
-    samples: Sequence[tuple[float, complex]],
-    output_path: Path,
-) -> None:
-    temporary = output_path.with_name(f"{output_path.name}.{os.getpid()}.tmp")
-    with temporary.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.writer(stream)
-        writer.writerow(
-            (
-                "frequency_ghz",
-                "s21_real",
-                "s21_imag",
-                "s21_magnitude",
-                "s21_magnitude_db",
-                "s21_phase_deg",
+def _validate_s21_csv(path: Path) -> int:
+    with path.open("r", encoding="utf-8", newline="") as stream:
+        reader = csv.DictReader(stream)
+        if tuple(reader.fieldnames or ()) != S21_CSV_COLUMNS:
+            raise RuntimeError(
+                f"unexpected S21 CSV columns in {path}: {reader.fieldnames!r}"
             )
-        )
-        for frequency_ghz, value in samples:
-            magnitude = abs(value)
-            magnitude_db = (
-                20.0 * math.log10(magnitude) if magnitude > 0.0 else -math.inf
-            )
-            writer.writerow(
-                (
-                    format(float(frequency_ghz), ".17g"),
-                    format(float(value.real), ".17g"),
-                    format(float(value.imag), ".17g"),
-                    format(float(magnitude), ".17g"),
-                    format(float(magnitude_db), ".17g"),
-                    format(float(math.degrees(math.atan2(value.imag, value.real))), ".17g"),
+        previous_frequency: float | None = None
+        sample_count = 0
+        for row in reader:
+            frequency = float(row["frequency_ghz"])
+            real = float(row["s21_real"])
+            imaginary = float(row["s21_imag"])
+            magnitude = float(row["s21_magnitude"])
+            phase = float(row["s21_phase_deg"])
+            if not all(
+                math.isfinite(value)
+                for value in (frequency, real, imaginary, magnitude, phase)
+            ):
+                raise RuntimeError(f"S21 CSV contains non-finite data: {path}")
+            if previous_frequency is not None and frequency <= previous_frequency:
+                raise RuntimeError(
+                    f"S21 CSV frequencies are not strictly increasing: {path}"
                 )
-            )
-    os.replace(temporary, output_path)
+            previous_frequency = frequency
+            sample_count += 1
+    if sample_count < 2:
+        raise RuntimeError(f"S21 contains fewer than two samples: {path}")
+    return sample_count
 
 
-def _load_complex_s21(project_path: Path) -> list[tuple[float, complex]]:
-    import cst.results
+def _export_complex_s21_in_child(
+    project_path: Path,
+    output_path: Path,
+    *,
+    overwrite: bool,
+    timeout: float,
+) -> int:
+    """Run ``cst.results`` outside the interface-owning Maid process.
 
-    project_file = cst.results.ProjectFile(
+    CST 2025's results and interface extension modules can collide with native
+    libraries already loaded by NumPy/SciPy.  A fresh isolated interpreter
+    gives ``_cst_results`` its own DLL namespace and releases every result
+    handle as soon as the worker exits.
+    """
+
+    if not S21_WORKER_PATH.is_file():
+        raise FileNotFoundError(f"S21 export worker is missing: {S21_WORKER_PATH}")
+    command = [
+        sys.executable,
+        "-I",
+        str(S21_WORKER_PATH),
+        "--project",
         str(project_path),
-        allow_interactive=True,
-    )
-    result = project_file.get_3d().get_result_item(S21_TREE_PATH)
-    samples = [
-        (float(frequency), complex(value))
-        for frequency, value in result.get_data()
+        "--output",
+        str(output_path),
+        "--tree-path",
+        S21_TREE_PATH,
     ]
-    if len(samples) < 2:
-        raise RuntimeError(f"S21 contains fewer than two samples: {project_path}")
-    if any(
-        not (
-            math.isfinite(frequency)
-            and math.isfinite(value.real)
-            and math.isfinite(value.imag)
+    if overwrite:
+        command.append("--overwrite")
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=max(float(timeout), 1.0),
         )
-        for frequency, value in samples
-    ):
-        raise RuntimeError("S21 contains a non-finite frequency or complex value")
-    if any(right[0] <= left[0] for left, right in zip(samples, samples[1:])):
-        raise RuntimeError("S21 frequencies are not strictly increasing")
-    return samples
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"isolated S21 export timed out after {timeout:g} s: {project_path}"
+        ) from exc
+    if completed.returncode != 0:
+        detail = "\n".join(
+            value.strip()
+            for value in (completed.stdout, completed.stderr)
+            if value and value.strip()
+        )
+        raise RuntimeError(
+            "isolated S21 export failed with exit code "
+            f"{completed.returncode}: {detail or 'no child-process output'}"
+        )
+    if not output_path.is_file() or output_path.stat().st_size <= 0:
+        raise RuntimeError(
+            f"isolated S21 export produced no non-empty CSV: {output_path}"
+        )
+    return _validate_s21_csv(output_path)
 
 
 def _field_tree_items(
@@ -310,8 +347,12 @@ def export_propagation_results(
             )
 
     print(f"[export] reading complex S21: {S21_TREE_PATH}")
-    s21_samples = _load_complex_s21(project_path)
-    _atomic_write_s21_csv(s21_samples, s21_path)
+    s21_sample_count = _export_complex_s21_in_child(
+        project_path,
+        s21_path,
+        overwrite=overwrite,
+        timeout=timeout,
+    )
     exported: list[ExportedFile] = [
         ExportedFile(
             kind="complex_s21_csv",
@@ -372,7 +413,7 @@ def export_propagation_results(
         output_directory=str(output_directory),
         created_at_utc=datetime.now(timezone.utc).isoformat(),
         s21_tree_path=S21_TREE_PATH,
-        s21_sample_count=len(s21_samples),
+        s21_sample_count=s21_sample_count,
         e_field_monitor_count=len(field_items),
         excitation_port=excitation_port,
         files=tuple(exported),

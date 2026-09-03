@@ -241,6 +241,13 @@ Princess 不会从本机上传 `.cst` 覆盖它们，而是要求每台 Maid 在
 Princess 每个 case 只接收 `S21.csv` 和 `manifest.json`。由 Port 1 激励得到的 CST 原生
 E-field `.m3d/.rex` 文件保存在运行该 case 的 Maid 本地：
 
+复数 S21 不在持有 `cst.interface` 的 Maid 主进程中读取。主进程会启动一次性的
+[`export_s21_results_worker.py`](../postprocessing/export_s21_results_worker.py)，由全新的
+Python 进程单独加载 `cst.results`、读取 `S2,1` 并原子写出 CSV，随后立即退出并释放结果
+句柄。这一进程边界避免 CST results DLL 与 NumPy/SciPy/Shapely 及 interface DLL 在同一
+进程中发生冲突，同时保留 BER/iFFT 所需的复数数据。若该路径在未来 CST 版本中失效，
+再回退到 VBA 结果读取。
+
 ```text
 <launch-root>/output/local_only/case_<sample-id>/e_field_native/
 ```
