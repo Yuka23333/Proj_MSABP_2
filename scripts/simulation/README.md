@@ -249,6 +249,26 @@ E-field `.m3d/.rex` 文件保存在运行该 case 的 Maid 本地：
 重启时，新一代 launch 有自己的 `local_only`；最终 E-field 归档需要按 manifest 记录的
 绝对目录到对应主机取回。
 
+#### 传播模型的主机本地调试
+
+通过 `execute_vba_code` 创建的几何体不会进入 CST History Tree。它可以在当前会话中正常
+求解，但保存、关闭并在另一台主机重新打开 `.cst` 后可能消失。因此，不能把已经通过宏
+画好天线的 `.cst` 当作可迁移的传播模型；每台仿真主机必须在自己的 CST 会话中重新执行
+建模脚本。
+
+若要手工求解并调试结果导出，请通过 TeamViewer 进入每台主机的交互桌面，在仓库根目录
+运行：
+
+```powershell
+C:\Users\telecom\miniforge3\envs\maid\python.exe `
+  scripts\simulation\prepare_propagation_debug_on_host.py
+```
+
+脚本会打开该主机的隔离调试副本，创建候选 #1 的两副天线并停在
+`READY FOR MANUAL SOLVE`。随后可在 CST 窗口中手工启动 solver。求解和导出调试结束前，
+不要关闭 CST 或该 Python 进程；确认可以释放会话后，在终端输入 `RELEASE`。脚本本身既
+不启动 solver，也不保存包含宏生成几何体的 `.cst`。
+
 ### 4. 查看状态
 
 在另一个 PowerShell 窗口中，或运行结束后执行：
