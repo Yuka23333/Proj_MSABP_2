@@ -10,7 +10,7 @@ import re
 import tempfile
 import threading
 import zipfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from http import HTTPStatus
 from pathlib import Path, PurePosixPath
@@ -116,6 +116,9 @@ class PrincessCoordinator:
         max_attempts: int = 3,
         streak_threshold: int = 5,
         max_automatic_restarts_without_success: int = 1,
+        required_simulation_modes: Sequence[str] = (
+            case_runner.DEFAULT_SIMULATION_MODE,
+        ),
     ) -> None:
         self.state = state
         self.run_id = run_id
@@ -130,6 +133,11 @@ class PrincessCoordinator:
         self.max_automatic_restarts_without_success = int(
             max_automatic_restarts_without_success
         )
+        self.required_simulation_modes = frozenset(
+            str(mode).strip() for mode in required_simulation_modes
+        )
+        if not self.required_simulation_modes:
+            raise ValueError("required_simulation_modes must not be empty")
         self._attempt_locks_guard = threading.Lock()
         self._attempt_locks: dict[str, threading.Lock] = {}
 
@@ -237,6 +245,29 @@ class PrincessCoordinator:
             maid_csv_sha256 = _required_text(payload, "csv_sha256").lower()
             if maid_csv_sha256 != self.csv_sha256:
                 raise ApiError(HTTPStatus.CONFLICT, "Maid CSV SHA-256 does not match")
+            raw_modes = payload.get("supported_simulation_modes")
+            if raw_modes is None:
+                # Compatibility for older Maids is safe only for the original
+                # single-antenna workflow.  A propagation campaign must never
+                # silently fall back to that runner.
+                supported_modes = {case_runner.DEFAULT_SIMULATION_MODE}
+            elif not isinstance(raw_modes, list) or not all(
+                isinstance(mode, str) and mode.strip() for mode in raw_modes
+            ):
+                raise ApiError(
+                    HTTPStatus.BAD_REQUEST,
+                    "Maid supported_simulation_modes must be an array of strings",
+                )
+            else:
+                supported_modes = {mode.strip() for mode in raw_modes}
+            missing_modes = self.required_simulation_modes - supported_modes
+            if missing_modes:
+                raise ApiError(
+                    HTTPStatus.CONFLICT,
+                    "Maid code is too old for this worklist; missing simulation "
+                    f"modes: {sorted(missing_modes)}. Pull the current commit on "
+                    "the Maid host before restarting Princess.",
+                )
             self.state.register_worker(
                 self.run_id,
                 worker_id,
@@ -245,6 +276,7 @@ class PrincessCoordinator:
                 metadata={
                     "pid": payload.get("pid"),
                     "dry_run": _optional_bool(payload, "dry_run", False),
+                    "supported_simulation_modes": sorted(supported_modes),
                 },
             )
             return self._reply(
@@ -694,11 +726,25 @@ class PrincessCoordinator:
         if not isinstance(artifacts, Mapping):
             raise ApiError(HTTPStatus.BAD_REQUEST, "manifest artifacts must be an object")
         status = manifest.get("status")
-        required = (
-            {"s11", "rad_eff", "tot_eff", "farfield_source"}
-            if status == "completed"
-            else set()
+        simulation_mode = manifest.get(
+            "simulation_mode",
+            case_runner.DEFAULT_SIMULATION_MODE,
         )
+        required_by_mode = {
+            case_runner.DEFAULT_SIMULATION_MODE: {
+                "s11",
+                "rad_eff",
+                "tot_eff",
+                "farfield_source",
+            },
+            "propagation_s21": {"s21"},
+        }
+        if simulation_mode not in required_by_mode:
+            raise ApiError(
+                HTTPStatus.BAD_REQUEST,
+                f"manifest simulation_mode is unsupported: {simulation_mode!r}",
+            )
+        required = required_by_mode[simulation_mode] if status == "completed" else set()
         missing = required - set(artifacts)
         if missing:
             raise ApiError(

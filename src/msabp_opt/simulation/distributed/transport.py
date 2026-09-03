@@ -480,6 +480,139 @@ def push_file_atomic(
     )
 
 
+def copy_device_file_atomic(
+    device: DeviceConfig,
+    source_path: str,
+    destination_path: str,
+    *,
+    overwrite: bool = True,
+    runner: CommandRunner = _default_runner,
+    ssh_executable: str = "ssh",
+) -> TransferReceipt:
+    """Atomically copy a file already resident on one Maid device.
+
+    Propagation templates contain manually configured infrastructure and are
+    therefore authoritative on each Maid host.  This operation creates a
+    private per-launch working copy without uploading a local CST file.
+    """
+
+    source = _windows_absolute_path(source_path, "source_path")
+    destination = _windows_absolute_path(destination_path, "destination_path")
+    if device.launch_mode is LaunchMode.LOCAL:
+        local_source = Path(str(source)).resolve()
+        local_destination = Path(str(destination)).resolve()
+        if not local_source.is_file():
+            raise FileNotFoundError(
+                f"device-local copy source does not exist: {local_source}"
+            )
+        digest = sha256_file(local_source)
+        _local_copy_atomic(
+            local_source,
+            local_destination,
+            overwrite=overwrite,
+            expected_sha256=digest,
+        )
+        return TransferReceipt(
+            device_id=device.id,
+            source=str(local_source),
+            destination=str(local_destination),
+            size_bytes=local_destination.stat().st_size,
+            sha256=digest,
+        )
+
+    temporary = destination.parent / (
+        f".{destination.name}.{uuid4().hex}.msabp-local-part"
+    )
+    lines = [
+        "$ErrorActionPreference = 'Stop'",
+        f"$source = {_ps_literal(str(source))}",
+        f"$destination = {_ps_literal(str(destination))}",
+        f"$temporary = {_ps_literal(str(temporary))}",
+        "if (-not [System.IO.File]::Exists($source)) {",
+        "    throw 'device-local CST template does not exist'",
+        "}",
+        "[System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($destination)) | Out-Null",
+        "$sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()",
+        "if ([System.String]::Equals([System.IO.Path]::GetFullPath($source), [System.IO.Path]::GetFullPath($destination), [System.StringComparison]::OrdinalIgnoreCase)) {",
+        "    $size = (Get-Item -LiteralPath $source).Length",
+        "    Write-Output (\"{0}|{1}\" -f $size, $sourceHash)",
+        "    exit 0",
+        "}",
+        "Copy-Item -LiteralPath $source -Destination $temporary -Force",
+        "$temporaryHash = (Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash.ToLowerInvariant()",
+        "if ($temporaryHash -ne $sourceHash) {",
+        "    Remove-Item -LiteralPath $temporary -Force",
+        "    throw 'device-local copy SHA-256 mismatch'",
+        "}",
+        "if ([System.IO.File]::Exists($destination)) {",
+    ]
+    if overwrite:
+        lines.append(
+            "    Move-Item -LiteralPath $temporary -Destination $destination -Force"
+        )
+    else:
+        lines.extend(
+            (
+                "    Remove-Item -LiteralPath $temporary -Force",
+                "    throw 'device-local copy destination already exists'",
+            )
+        )
+    lines.extend(
+        (
+            "} else {",
+            "    [System.IO.File]::Move($temporary, $destination)",
+            "}",
+            "$size = (Get-Item -LiteralPath $destination).Length",
+            "$finalHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()",
+            "Write-Output (\"{0}|{1}\" -f $size, $finalHash)",
+        )
+    )
+    try:
+        result = run_remote_powershell(
+            device,
+            "\n".join(lines),
+            runner=runner,
+            ssh_executable=ssh_executable,
+            action="copy device-local project template",
+        )
+    except BaseException:
+        try:
+            run_remote_powershell(
+                device,
+                "\n".join(
+                    (
+                        "$ErrorActionPreference = 'SilentlyContinue'",
+                        f"Remove-Item -LiteralPath {_ps_literal(str(temporary))} -Force",
+                    )
+                ),
+                runner=runner,
+                ssh_executable=ssh_executable,
+                action="clean failed device-local copy",
+            )
+        except TransportError:
+            pass
+        raise
+
+    receipt_pattern = re.compile(r"^(\d+)\|([0-9a-f]{64})$")
+    match = next(
+        (
+            receipt_pattern.fullmatch(line.strip().lower())
+            for line in reversed((result.stdout or "").splitlines())
+            if receipt_pattern.fullmatch(line.strip().lower()) is not None
+        ),
+        None,
+    )
+    if match is None:
+        raise TransportError("device-local copy returned no size/hash receipt")
+    return TransferReceipt(
+        device_id=device.id,
+        source=str(source),
+        destination=str(destination),
+        size_bytes=int(match.group(1)),
+        sha256=match.group(2),
+    )
+
+
 def _last_sha256_line(output: str) -> str:
     for line in reversed(output.splitlines()):
         candidate = line.strip().lower()

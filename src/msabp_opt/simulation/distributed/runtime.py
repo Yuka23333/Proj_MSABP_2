@@ -29,6 +29,7 @@ from .state import FrozenCsv, PrincessState, UnknownWorkerError, freeze_csv
 from .transport import (
     DoctorReport,
     LaunchReceipt,
+    copy_device_file_atomic,
     doctor_device,
     launch_maid,
     push_file_atomic,
@@ -437,6 +438,26 @@ def prepare_run(
     )
 
 
+def worklist_simulation_modes(path: str | Path) -> tuple[str, ...]:
+    """Return the explicit/default simulation modes required by a worklist."""
+
+    from . import case_runner
+
+    source = Path(path).expanduser().resolve()
+    with source.open("r", encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream)
+        modes = {
+            (row.get("simulation_mode") or case_runner.DEFAULT_SIMULATION_MODE).strip()
+            for row in reader
+        }
+    unknown = modes - set(case_runner.SUPPORTED_SIMULATION_MODES)
+    if unknown:
+        raise PrincessRuntimeError(
+            f"worklist requests unsupported simulation modes: {sorted(unknown)}"
+        )
+    return tuple(sorted(modes))
+
+
 def _maid_runtime_payload(
     *,
     device: DeviceConfig,
@@ -507,6 +528,8 @@ class PrincessRuntime:
         ),
         max_recovery_launch_attempts: int = 3,
         push_file: Callable[..., Any] = push_file_atomic,
+        copy_device_file: Callable[..., Any] = copy_device_file_atomic,
+        device_project_relative_path: str | PureWindowsPath | None = None,
         doctor: Callable[..., DoctorReport] = doctor_device,
         launcher: Callable[..., LaunchReceipt] = launch_maid,
         server_factory: Callable[..., PrincessHttpServer] = PrincessHttpServer,
@@ -515,6 +538,19 @@ class PrincessRuntime:
         self.registry = registry
         self.devices = tuple(devices)
         self.project_template = Path(project_template).expanduser().resolve()
+        if device_project_relative_path is None:
+            self.device_project_relative_path: PureWindowsPath | None = None
+        else:
+            relative = PureWindowsPath(str(device_project_relative_path))
+            if (
+                relative.is_absolute()
+                or not relative.parts
+                or any(part in {"", ".", ".."} for part in relative.parts)
+            ):
+                raise ValueError(
+                    "device_project_relative_path must be a safe relative Windows path"
+                )
+            self.device_project_relative_path = relative
         self.dry_run = bool(dry_run)
         self.coordinate_quantum_mm = self._positive_finite(
             coordinate_quantum_mm,
@@ -560,6 +596,7 @@ class PrincessRuntime:
             raise ValueError("max_recovery_launch_attempts must be at least 1")
         self.save_project_after_case = bool(save_project_after_case)
         self._push_file = push_file
+        self._copy_device_file = copy_device_file
         self._doctor = doctor
         self._launcher = launcher
         self._server_factory = server_factory
@@ -601,6 +638,9 @@ class PrincessRuntime:
             lease_seconds=self.lease_seconds,
             max_attempts=self.max_attempts,
             streak_threshold=self.max_consecutive_errors,
+            required_simulation_modes=worklist_simulation_modes(
+                self.preparation.paths.worklist_csv
+            ),
         )
         self._server = self._server_factory(
             (self.registry.bind_host, self.registry.port),
@@ -675,16 +715,25 @@ class PrincessRuntime:
         )
         needs_project = force_project or not self._worker_is_known(device.id)
         if not self.dry_run and needs_project:
-            if not self.project_template.is_file():
-                raise FileNotFoundError(
-                    f"CST project template does not exist: {self.project_template}"
+            if self.device_project_relative_path is not None:
+                source = PureWindowsPath(device.repo_root) / self.device_project_relative_path
+                self._copy_device_file(
+                    device,
+                    str(source),
+                    paths.project_path,
+                    overwrite=True,
                 )
-            self._push_file(
-                device,
-                self.project_template,
-                paths.project_path,
-                overwrite=True,
-            )
+            else:
+                if not self.project_template.is_file():
+                    raise FileNotFoundError(
+                        f"CST project template does not exist: {self.project_template}"
+                    )
+                self._push_file(
+                    device,
+                    self.project_template,
+                    paths.project_path,
+                    overwrite=True,
+                )
         # Runtime JSON is committed last: Maid never observes a half deployment.
         self._push_file(
             device,

@@ -931,11 +931,16 @@ def _build_live_vba_sequence(
     specs: Sequence[CstPolygonSpec],
     report: GeometryBuildReport,
     component_name: str,
+    *,
+    define_substrate_material: bool = True,
 ) -> list[tuple[str, str]]:
     commands: list[tuple[str, str]] = [
         ("prepare project", build_prepare_project_vba(specs, component_name)),
     ]
-    if report.substrate_material_name != VACUUM_SUBSTRATE_MATERIAL_NAME:
+    if (
+        define_substrate_material
+        and report.substrate_material_name != VACUUM_SUBSTRATE_MATERIAL_NAME
+    ):
         commands.append(("define substrate material", build_substrate_material_vba()))
     for spec in specs:
         commands.extend(
@@ -1020,6 +1025,7 @@ def build_msabp_in_cst(
     dry_run: bool = False,
     project: Any | None = None,
     save_project: bool = True,
+    define_substrate_material: bool = True,
 ) -> GeometryBuildReport:
     """Build and verify the antenna in a target or already connected project.
 
@@ -1099,6 +1105,7 @@ def build_msabp_in_cst(
         specs,
         report,
         component_name,
+        define_substrate_material=define_substrate_material,
     )
     print(f"CST project: {Path(project_path).resolve()}")
     print(

@@ -27,6 +27,7 @@ from msabp_opt.simulation.distributed.config import (  # noqa: E402
 from msabp_opt.simulation.distributed.transport import (  # noqa: E402
     DEFAULT_TRANSFER_TIMEOUT_SECONDS,
     TransportError,
+    copy_device_file_atomic,
     decode_powershell_command,
     doctor_device,
     encode_powershell_command,
@@ -244,6 +245,28 @@ def test_remote_atomic_push_uses_batchmode_scp_hash_and_forced_move(
     assert "Move-Item -LiteralPath $temporary" in commit_script
     assert "-Destination $destination -Force" in commit_script
     assert "[System.IO.File]::Replace" not in commit_script
+
+
+def test_remote_device_local_copy_is_hash_checked_without_scp() -> None:
+    digest = "a" * 64
+    runner = RecordingRunner(outputs=[f"12345|{digest}\n"])
+
+    receipt = copy_device_file_atomic(
+        _remote_device(),
+        r"D:\Academic\Proj_MSABP_2\simulations\models\msa-bp-propagation.cst",
+        r"D:\Academic\Proj_MSABP_2\simulations\runs\run-1\model\msa-bp.cst",
+        runner=runner,
+    )
+
+    assert len(runner.calls) == 1
+    assert runner.calls[0][0] == "ssh"
+    script = _decode_ssh_script(runner.calls[0])
+    assert "Copy-Item -LiteralPath $source" in script
+    assert "Get-FileHash -LiteralPath $temporary" in script
+    assert "Move-Item -LiteralPath $temporary" in script
+    assert "scp" not in script.casefold()
+    assert receipt.size_bytes == 12345
+    assert receipt.sha256 == digest
 
 
 def test_remote_atomic_push_cleans_temporary_file_after_scp_error(

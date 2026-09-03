@@ -217,6 +217,38 @@ Princess 覆盖远端已存在的 worklist/runtime 时使用同目录、哈希�
 调用 Windows PowerShell 5.1 在两台 Maid 上均会报“路径格式不合法”的
 `[System.IO.File]::Replace(..., $null)`。
 
+### 3.1 双天线传播 13-case 任务
+
+传播任务使用独立入口 [`run_propagation_13.py`](run_propagation_13.py)，任务表由
+[`prepare_propagation_13.py`](prepare_propagation_13.py) 生成：12 个纯几何 k-medoids
+代表解加候选 #1，共 13 个 case；#35 不重复加入，因为已保留肉眼几乎相同的 #34。
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\simulation\prepare_propagation_13.py
+
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\simulation\run_propagation_13.py
+```
+
+两台 Maid 的 `simulations\models\msa-bp-propagation.cst` 是各自主机上的权威模板，必须
+已经手工配置好 SMA/接口、Port 1/2、Muscle 幻象、三个 E-field Monitor 和 solver。
+Princess 不会从本机上传 `.cst` 覆盖它们，而是要求每台 Maid 在本机原子复制模板，创建
+该 launch 的私有项目副本。每个 case 只清除旧结果并重建 `component1` 与
+`component1_1` 中的天线金属、基板和反射板，再把第二副天线关于 Y=0 镜像并沿 Y 平移
+300 mm；基础设施对象完全不改。
+
+Princess 每个 case 只接收 `S21.csv` 和 `manifest.json`。由 Port 1 激励得到的 CST 原生
+E-field `.m3d/.rex` 文件保存在运行该 case 的 Maid 本地：
+
+```text
+<launch-root>/output/local_only/case_<sample-id>/e_field_native/
+```
+
+成功上传后 Maid 只清理临时 attempt 与 outbox，不删除上述 `local_only` 目录。发生 Maid
+重启时，新一代 launch 有自己的 `local_only`；最终 E-field 归档需要按 manifest 记录的
+绝对目录到对应主机取回。
+
 ### 4. 查看状态
 
 在另一个 PowerShell 窗口中，或运行结束后执行：

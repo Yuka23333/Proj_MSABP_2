@@ -35,6 +35,12 @@ from scripts.automation import cst_run_and_export_s11  # noqa: E402
 
 
 MANIFEST_SCHEMA_VERSION = 1
+DEFAULT_SIMULATION_MODE = "antenna_characterization"
+PROPAGATION_SIMULATION_MODE = "propagation_s21"
+SUPPORTED_SIMULATION_MODES = (
+    DEFAULT_SIMULATION_MODE,
+    PROPAGATION_SIMULATION_MODE,
+)
 S11_FILENAME = "S11.csv"
 RAD_EFF_FILENAME = cst_run_and_export_s11.RAD_EFF_FILENAME
 TOT_EFF_FILENAME = cst_run_and_export_s11.TOT_EFF_FILENAME
@@ -66,6 +72,9 @@ class CaseRunResult:
     elapsed_seconds: float
     rad_eff_path: Path | None = None
     tot_eff_path: Path | None = None
+    s21_path: Path | None = None
+    local_e_field_directory: Path | None = None
+    simulation_mode: str = DEFAULT_SIMULATION_MODE
 
 
 def sha256_file(path: str | Path) -> str:
@@ -165,12 +174,38 @@ def run_csv_row(
     save_project_after_case: bool = False,
     dry_run: bool = False,
     stage_callback: StageCallback | None = None,
+    local_artifact_root: str | Path | None = None,
 ) -> CaseRunResult:
     """Run one CSV row through build, solver, 1D/FFS exports, and manifest.
 
     ``dry_run`` performs the same typed row parsing and quantized geometry
     preflight, then writes a manifest without importing or connecting to CST.
     """
+
+    simulation_mode = str(
+        row.get("simulation_mode", DEFAULT_SIMULATION_MODE)
+    ).strip() or DEFAULT_SIMULATION_MODE
+    if simulation_mode != DEFAULT_SIMULATION_MODE:
+        from . import propagation_case_runner
+
+        if simulation_mode != propagation_case_runner.SIMULATION_MODE:
+            raise ValueError(f"unsupported simulation_mode: {simulation_mode!r}")
+        return propagation_case_runner.run_csv_row(
+            row,
+            project_path=project_path,
+            output_root=output_root,
+            local_artifact_root=local_artifact_root,
+            project=project,
+            case_id=case_id,
+            id_width=id_width,
+            coordinate_quantum_mm=coordinate_quantum_mm,
+            allow_disconnected_conductor=allow_disconnected_conductor,
+            command_timeout=command_timeout,
+            overwrite=overwrite,
+            save_project_after_case=save_project_after_case,
+            dry_run=dry_run,
+            stage_callback=stage_callback,
+        )
 
     started_clock = time.perf_counter()
     started_at = datetime.now(timezone.utc).isoformat()
@@ -239,6 +274,7 @@ def run_csv_row(
         elapsed_seconds = time.perf_counter() - started_clock
         payload = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
+            "simulation_mode": DEFAULT_SIMULATION_MODE,
             "case_id": resolved_case_id,
             "status": "dry_run",
             "dry_run": True,
@@ -352,6 +388,7 @@ def run_csv_row(
     elapsed_seconds = time.perf_counter() - started_clock
     payload = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
+        "simulation_mode": DEFAULT_SIMULATION_MODE,
         "case_id": resolved_case_id,
         "status": "completed",
         "dry_run": False,

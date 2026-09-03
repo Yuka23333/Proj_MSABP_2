@@ -131,6 +131,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     start.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
     start.add_argument(
+        "--device-project-relative-path",
+        default=None,
+        help=(
+            "copy this project from inside each Maid repo instead of uploading "
+            "--project; required for manually provisioned propagation templates"
+        ),
+    )
+    start.add_argument(
         "--results-root",
         type=Path,
         default=None,
@@ -228,6 +236,7 @@ def _run_start(args: argparse.Namespace) -> int:
         registry=registry,
         devices=devices,
         project_template=args.project,
+        device_project_relative_path=args.device_project_relative_path,
         dry_run=args.dry_run,
         coordinate_quantum_mm=args.coordinate_quantum_mm,
         allow_disconnected_conductor=args.allow_disconnected_conductor,

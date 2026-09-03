@@ -42,6 +42,7 @@ from msabp_opt.simulation.distributed.runtime import (  # noqa: E402
     prepare_run,
     prepare_worklist,
     select_devices,
+    worklist_simulation_modes,
 )
 from msabp_opt.simulation.distributed.state import PrincessState  # noqa: E402
 from msabp_opt.simulation.distributed.transport import (  # noqa: E402
@@ -115,6 +116,18 @@ def test_prepare_worklist_excludes_invalid_geometry_before_maid(tmp_path: Path) 
     source.write_text("sample_id,value\nchanged,4\n", encoding="utf-8")
     with pytest.raises(FileExistsError, match="different content"):
         prepare_worklist(source, paths)
+
+
+def test_worklist_simulation_modes_preserve_propagation_dispatch(tmp_path: Path) -> None:
+    worklist = tmp_path / "propagation.csv"
+    worklist.write_text(
+        "sample_id,simulation_mode\n"
+        "p1,propagation_s21\n"
+        "p2,propagation_s21\n",
+        encoding="utf-8",
+    )
+
+    assert worklist_simulation_modes(worklist) == ("propagation_s21",)
 
 
 def test_explicit_device_selection_opts_in_disabled_device() -> None:
@@ -250,6 +263,55 @@ def test_deployment_commits_runtime_last_and_refreshes_project_on_resume(
         assert r"launches\resume-test\model\msa-bp.cst" in paths.project_path
     finally:
         runtime.close()
+
+
+def test_deployment_can_copy_authoritative_project_inside_each_device(
+    tmp_path: Path,
+) -> None:
+    source = _write_small_csv(tmp_path / "samples.csv")
+    device = _device(enabled=True)
+    registry = _registry(device)
+    preparation = prepare_run(
+        source_csv=source,
+        run_id="propagation-run",
+        registry=registry,
+        devices=(device,),
+        repository_root=tmp_path,
+    )
+    pushes: list[tuple[Path, str]] = []
+    copies: list[tuple[str, str]] = []
+
+    def fake_push(_device, source_path, destination_path, **_kwargs):
+        pushes.append((Path(source_path), str(destination_path)))
+
+    def fake_copy(_device, source_path, destination_path, **_kwargs):
+        copies.append((str(source_path), str(destination_path)))
+
+    runtime = PrincessRuntime(
+        preparation=preparation,
+        registry=registry,
+        devices=(device,),
+        project_template=tmp_path / "must-not-be-uploaded.cst",
+        device_project_relative_path=r"simulations\models\msa-bp-propagation.cst",
+        push_file=fake_push,
+        copy_device_file=fake_copy,
+    )
+    runtime._state = PrincessState(preparation.paths.database)
+    try:
+        paths, _staged = runtime.deploy_device(device)
+    finally:
+        runtime.close()
+
+    assert [item[0].name for item in pushes] == [
+        "worklist.csv",
+        "maid_runtime.json",
+    ]
+    assert copies == [
+        (
+            r"D:\Academic\Proj_MSABP_2\simulations\models\msa-bp-propagation.cst",
+            paths.project_path,
+        )
+    ]
 
 
 def test_bell_deployment_passes_ephemeral_run_token_to_launcher(

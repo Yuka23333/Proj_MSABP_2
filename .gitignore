@@ -51,6 +51,10 @@ Desktop.ini
 !/simulations/models/*.cst
 !/simulations/models/README.md
 
+# Device-local propagation templates contain manually recorded infrastructure.
+# Each Maid keeps and maintains its own copy; never replace it through Git.
+/simulations/models/msa-bp-propagation.cst
+
 # Runtime logs and generated simulation data
 logs/*
 !logs/.gitkeep

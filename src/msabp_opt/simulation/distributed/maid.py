@@ -457,6 +457,9 @@ class Maid:
                     "pid": os.getpid(),
                     "csv_sha256": self.config.csv_sha256,
                     "dry_run": self.config.dry_run,
+                    "supported_simulation_modes": list(
+                        case_runner.SUPPORTED_SIMULATION_MODES
+                    ),
                 },
                 deadline_seconds=self.config.hello_timeout_seconds,
             )
@@ -540,6 +543,7 @@ class Maid:
                     save_project_after_case=self.config.save_project_after_case,
                     dry_run=self.config.dry_run,
                     stage_callback=heartbeat.set_stage,
+                    local_artifact_root=self.config.output_root / "local_only",
                 )
             except Exception as exc:
                 return self._report_failure(

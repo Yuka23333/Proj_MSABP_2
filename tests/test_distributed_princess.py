@@ -42,6 +42,9 @@ def _coordinator(
     tmp_path: Path,
     *,
     case_count: int = 1,
+    required_simulation_modes: tuple[str, ...] = (
+        case_runner.DEFAULT_SIMULATION_MODE,
+    ),
 ) -> tuple[PrincessCoordinator, PrincessState, str]:
     source = tmp_path / "samples.csv"
     rows = ["sample_id,value,geometry_valid"]
@@ -58,8 +61,39 @@ def _coordinator(
         incoming_dir=tmp_path / "incoming",
         lease_seconds=90.0,
         max_attempts=3,
+        required_simulation_modes=required_simulation_modes,
     )
     return coordinator, state, frozen.sha256
+
+
+def test_propagation_princess_rejects_old_maid_before_task_assignment(
+    tmp_path: Path,
+) -> None:
+    coordinator, state, csv_sha256 = _coordinator(
+        tmp_path,
+        required_simulation_modes=(case_runner.PROPAGATION_SIMULATION_MODE,),
+    )
+    try:
+        legacy_hello = _request(
+            "hello",
+            payload={"csv_sha256": csv_sha256, "dry_run": False},
+        )
+        with pytest.raises(ApiError, match="Maid code is too old"):
+            coordinator.handle_message(legacy_hello)
+
+        capable_hello = _request(
+            "hello",
+            payload={
+                "csv_sha256": csv_sha256,
+                "dry_run": False,
+                "supported_simulation_modes": list(
+                    case_runner.SUPPORTED_SIMULATION_MODES
+                ),
+            },
+        )
+        assert coordinator.handle_message(capable_hello)["type"] == "welcome"
+    finally:
+        state.close()
 
 
 def _request(
