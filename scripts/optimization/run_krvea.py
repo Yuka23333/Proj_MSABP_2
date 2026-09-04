@@ -159,6 +159,7 @@ class CampaignConfig:
     exploration_period_batches: int = 1
     strategy_name: str = "baseline"
     strategy_source: Path | None = None
+    strategy_config_source: Path | None = None
 
 
 def surrogate_fit_settings() -> Any:
@@ -348,6 +349,18 @@ def _validate_config(config: CampaignConfig) -> CampaignConfig:
     )
     if strategy_source is not None and not strategy_source.is_file():
         raise FileNotFoundError(f"strategy source does not exist: {strategy_source}")
+    strategy_config_source = (
+        config.strategy_config_source.resolve()
+        if config.strategy_config_source is not None
+        else None
+    )
+    if (
+        strategy_config_source is not None
+        and not strategy_config_source.is_file()
+    ):
+        raise FileNotFoundError(
+            f"strategy config does not exist: {strategy_config_source}"
+        )
     _validate_sampling_contract(config.sampling_config)
     if not np.isclose(
         krvea_data.reference_substrate_area_mm2(),
@@ -364,6 +377,7 @@ def _validate_config(config: CampaignConfig) -> CampaignConfig:
         device_config=config.device_config.resolve(),
         project_template=config.project_template.resolve(),
         strategy_source=strategy_source,
+        strategy_config_source=strategy_config_source,
     )
 
 
@@ -469,22 +483,29 @@ def _plan_payload(
     }
     if config.strategy_source is not None:
         implementation_sha256["strategy_source"] = _sha256(config.strategy_source)
+    if config.strategy_config_source is not None:
+        implementation_sha256["strategy_config"] = _sha256(
+            config.strategy_config_source
+        )
     historical_count = int(source_snapshot.get("trainable_count", 0))
     if historical_count < MINIMUM_INITIAL_TRAINING_COUNT:
         raise ValueError("historical snapshot lacks the minimum trainable count")
+    strategy_payload: dict[str, Any] = {
+        "name": config.strategy_name,
+        "source": (
+            str(config.strategy_source)
+            if config.strategy_source is not None
+            else None
+        ),
+    }
+    if config.strategy_config_source is not None:
+        strategy_payload["config_source"] = str(config.strategy_config_source)
     return {
         "schema_version": PLAN_SCHEMA_VERSION,
         "plan_id": config.plan_id,
         "created_at_utc": _utc_now(),
         "algorithm": "K-RVEA",
-        "strategy": {
-            "name": config.strategy_name,
-            "source": (
-                str(config.strategy_source)
-                if config.strategy_source is not None
-                else None
-            ),
-        },
+        "strategy": strategy_payload,
         "provenance": {
             "implementation": "independent Python reimplementation",
             "upstream_repository": "https://github.com/tichugh/K-RVEA.git",

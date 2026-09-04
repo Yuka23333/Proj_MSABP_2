@@ -1,12 +1,10 @@
-"""Run the isolated late-stage four-objective K-RVEA continuation.
+"""Run JSON-configured late-stage four-objective K-RVEA continuations.
 
-This entrypoint deliberately does not replace :mod:`run_krvea`.  Its policy is
-calibrated only for the dense, late-stage archive after the first three K-RVEA
-campaigns and must not be assumed to work during initial optimization.
-
-F5 uses the constants below.  A real run still requires typing ``RUN`` unless
-``--yes`` is supplied.  ``--prepare-only`` never starts SSH, Princess, Maid,
-or CST.
+This entrypoint deliberately does not replace :mod:`run_krvea`.  The strategy
+identity remains fixed in this file; round-specific numerical parameters and
+campaign paths live in an immutable JSON file.  A real run still requires
+typing ``RUN`` unless ``--yes`` is supplied.  ``--prepare-only`` never starts
+SSH, Princess, Maid, or CST.
 """
 
 from __future__ import annotations
@@ -14,7 +12,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -25,105 +22,323 @@ for import_root in (REPOSITORY_ROOT, SRC_ROOT):
     if str(import_root) not in sys.path:
         sys.path.insert(0, str(import_root))
 
-from msabp_opt.optimization import krvea_relay  # noqa: E402
+from msabp_opt.optimization import krvea, krvea_data, krvea_relay  # noqa: E402
 from scripts.optimization import run_krvea as baseline  # noqa: E402
 
 
-F5_PLAN_ID = "msabp-krvea-11var-deep-64-004"
-F5_SOURCE_DIRECTORIES = (
-    REPOSITORY_ROOT / "results" / "raw" / "doe-11var-branch-up-lhs-512-001",
-    REPOSITORY_ROOT / "results" / "raw" / "msabp-krvea-11var-smoke-128-001",
-    REPOSITORY_ROOT / "results" / "raw" / "msabp-krvea-11var-calibrated-64-002",
-    REPOSITORY_ROOT / "results" / "raw" / "msabp-krvea-11var-calibrated-64-003",
+CONFIG_SCHEMA_VERSION = 1
+STRATEGY_NAME = "deep_late_stage_s11_guard_v1"
+DEFAULT_CONFIG_PATH = (
+    REPOSITORY_ROOT / "configs" / "optimization" / "deep_krvea_round5.json"
 )
-F5_OUTPUT_DIRECTORY = REPOSITORY_ROOT / "results" / "raw" / F5_PLAN_ID
-F5_TOTAL_BUDGET = 64
-F5_Q = 4
-F5_SEED = 20260901
 F5_REQUIRE_CONFIRMATION = True
 
-STRATEGY_NAME = "deep_late_stage_s11_guard_v1"
-S11_UNCERTAINTY_CALIBRATION_FACTOR = 2.5
-EXPENSIVE_UNCERTAINTY_CALIBRATION_FACTORS = (
-    S11_UNCERTAINTY_CALIBRATION_FACTOR,
-    1.1,
-    1.25,
-)
-EXPLORATION_PERIOD_BATCHES = 2
-UNCERTAINTY_CALIBRATION_SOURCE = (
-    "round3_63_success_signed_s11_replay_60_of_63_upper_coverage"
-)
+_TOP_LEVEL_KEYS = {
+    "schema_version",
+    "campaign",
+    "strategy",
+    "surrogate",
+    "proposal_remote",
+    "simulation",
+}
+_CAMPAIGN_KEYS = {
+    "plan_id",
+    "source_directories",
+    "output_directory",
+    "total_budget",
+    "q",
+    "band_ghz",
+    "device_ids",
+}
+_STRATEGY_KEYS = {
+    "name",
+    "seed",
+    "reference_partitions",
+    "inner_evaluations",
+    "population_size",
+    "crossover_probability",
+    "crossover_eta",
+    "mutation_probability",
+    "mutation_eta",
+    "apd_alpha",
+    "empty_growth_fraction",
+    "uniqueness_tolerance",
+    "conservative_beta",
+    "uncertainty_scale_mode",
+    "exploration_slots",
+    "exploration_period_batches",
+    "exploration_novelty_weight",
+    "exploration_pool_size",
+}
+_SURROGATE_KEYS = {
+    "gp_training_steps",
+    "gp_kernel",
+    "gp_noise_mode",
+    "gp_fixed_noise_variance",
+    "gp_learned_noise_floor",
+    "gp_learned_noise_initial_variance",
+    "gp_posterior_observation_noise",
+    "gp_timeout_seconds",
+    "uncertainty_calibration_factors",
+    "uncertainty_calibration_source",
+    "bounded_moment_quadrature_order",
+    "support_distance_quantile",
+    "support_uncertainty_power",
+    "support_uncertainty_cap",
+}
+_REMOTE_KEYS = {
+    "device_id",
+    "python_path",
+    "compute_device",
+    "timeout_seconds",
+}
+_SIMULATION_KEYS = {
+    "sampling_config",
+    "device_config",
+    "project_template",
+    "coordinate_quantum_mm",
+    "allow_disconnected_conductor",
+    "max_attempts",
+}
 
 
-def deep_surrogate_fit_settings() -> krvea_relay.SurrogateFitSettings:
-    """Return the late-stage-only surrogate contract.
+def _mapping(value: Any, label: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"deep optimization {label} must be a JSON object")
+    return value
 
-    In round three, the baseline S11 factor 1.1 covered 57/63 successful
-    observations with the one-sided ``mean + 1.645 * std`` guard.  A
-    scale-only replay of the same signed residuals with factor 2.5 covers
-    60/63 (95.2%).
-    """
 
-    return krvea_relay.SurrogateFitSettings(
-        gp_training_steps=baseline.GP_TRAINING_STEPS,
-        gp_kernel=baseline.GP_KERNEL,
-        gp_noise_mode=baseline.GP_NOISE_MODE,
-        gp_fixed_noise_variance=baseline.GP_FIXED_NOISE_VARIANCE,
-        gp_posterior_observation_noise=(
-            baseline.GP_POSTERIOR_OBSERVATION_NOISE
-        ),
-        gp_timeout_seconds=baseline.GP_TIMEOUT_SECONDS,
-        uncertainty_calibration_factors=(
-            EXPENSIVE_UNCERTAINTY_CALIBRATION_FACTORS
-        ),
-        uncertainty_calibration_source=UNCERTAINTY_CALIBRATION_SOURCE,
+def _reject_unknown(
+    value: Mapping[str, Any],
+    allowed: set[str],
+    label: str,
+) -> None:
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        raise ValueError(
+            f"unknown deep optimization {label} field(s): {', '.join(unknown)}"
+        )
+
+
+def _require(value: Mapping[str, Any], keys: set[str], label: str) -> None:
+    missing = sorted(keys - set(value))
+    if missing:
+        raise ValueError(
+            f"missing deep optimization {label} field(s): {', '.join(missing)}"
+        )
+
+
+def _repo_path(value: Any) -> Path:
+    path = Path(str(value)).expanduser()
+    return path if path.is_absolute() else REPOSITORY_ROOT / path
+
+
+def _sequence(value: Any, label: str) -> Sequence[Any]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ValueError(f"deep optimization {label} must be a JSON array")
+    return value
+
+
+def validate_config_document(payload: Any) -> Mapping[str, Any]:
+    """Strictly validate one already-loaded late-stage JSON document."""
+
+    document = _mapping(payload, "document")
+    _reject_unknown(document, _TOP_LEVEL_KEYS, "document")
+    _require(document, _TOP_LEVEL_KEYS, "document")
+    if int(document["schema_version"]) != CONFIG_SCHEMA_VERSION:
+        raise ValueError(
+            "unsupported deep optimization schema_version "
+            f"{document['schema_version']!r}; expected {CONFIG_SCHEMA_VERSION}"
+        )
+    sections = (
+        ("campaign", _CAMPAIGN_KEYS),
+        ("strategy", _STRATEGY_KEYS),
+        ("surrogate", _SURROGATE_KEYS),
+        ("proposal_remote", _REMOTE_KEYS),
+        ("simulation", _SIMULATION_KEYS),
     )
+    for name, allowed in sections:
+        section = _mapping(document[name], name)
+        _reject_unknown(section, allowed, name)
+        _require(section, allowed, name)
+    return document
+
+
+def load_config_document(
+    config_path: str | Path = DEFAULT_CONFIG_PATH,
+) -> tuple[Path, Mapping[str, Any]]:
+    """Load and strictly validate the JSON document shape."""
+
+    path = Path(config_path).expanduser().resolve()
+    payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    document = validate_config_document(payload)
+    return path, document
 
 
 def build_config(
     *,
-    plan_id: str = F5_PLAN_ID,
-    source_directories: Sequence[Path] = F5_SOURCE_DIRECTORIES,
-    output_directory: Path = F5_OUTPUT_DIRECTORY,
-    total_budget: int = F5_TOTAL_BUDGET,
-    q: int = F5_Q,
-    device_ids: Sequence[str] = baseline.F5_DEVICE_IDS,
+    config_path: str | Path = DEFAULT_CONFIG_PATH,
+    plan_id: str | None = None,
+    source_directories: Sequence[Path] | None = None,
+    output_directory: Path | None = None,
+    total_budget: int | None = None,
+    q: int | None = None,
+    device_ids: Sequence[str] | None = None,
+    _document: Mapping[str, Any] | None = None,
+    _strategy_name: str = STRATEGY_NAME,
+    _strategy_source: Path | None = None,
 ) -> baseline.CampaignConfig:
-    """Build the isolated deep-stage campaign configuration."""
+    """Build one deep-stage campaign from JSON plus explicit CLI overrides."""
 
-    proposal = replace(
-        baseline.F5_PROPOSAL,
-        q=int(q),
-        seed=F5_SEED,
-        exploration_slots=1,
+    path = Path(config_path).expanduser().resolve()
+    if _document is None:
+        path, document = load_config_document(path)
+    else:
+        document = validate_config_document(_document)
+    campaign = _mapping(document["campaign"], "campaign")
+    strategy = _mapping(document["strategy"], "strategy")
+    surrogate = _mapping(document["surrogate"], "surrogate")
+    remote = _mapping(document["proposal_remote"], "proposal_remote")
+    simulation = _mapping(document["simulation"], "simulation")
+
+    if str(strategy["name"]) != _strategy_name:
+        raise ValueError(
+            "this entrypoint only accepts strategy.name "
+            f"{_strategy_name!r}; create another 深度优化_*.py for a new strategy"
+        )
+    campaign_q = int(q if q is not None else campaign["q"])
+    population_size = strategy["population_size"]
+    mutation_probability = strategy["mutation_probability"]
+    proposal = krvea.KRVEAConfig(
+        n_variables=len(krvea_data.ACTIVE_PARAMETER_NAMES),
+        n_objectives=4,
+        reference_partitions=int(strategy["reference_partitions"]),
+        q=campaign_q,
+        inner_evaluations=int(strategy["inner_evaluations"]),
+        population_size=(
+            None if population_size is None else int(population_size)
+        ),
+        seed=int(strategy["seed"]),
+        crossover_probability=float(strategy["crossover_probability"]),
+        crossover_eta=float(strategy["crossover_eta"]),
+        mutation_probability=(
+            None if mutation_probability is None else float(mutation_probability)
+        ),
+        mutation_eta=float(strategy["mutation_eta"]),
+        apd_alpha=float(strategy["apd_alpha"]),
+        empty_growth_fraction=float(strategy["empty_growth_fraction"]),
+        uniqueness_tolerance=float(strategy["uniqueness_tolerance"]),
+        conservative_beta=float(strategy["conservative_beta"]),
+        uncertainty_scale_mode=str(strategy["uncertainty_scale_mode"]),
+        exploration_slots=int(strategy["exploration_slots"]),
+        exploration_novelty_weight=float(
+            strategy["exploration_novelty_weight"]
+        ),
+        exploration_pool_size=int(strategy["exploration_pool_size"]),
     )
+    factors = tuple(
+        float(value)
+        for value in _sequence(
+            surrogate["uncertainty_calibration_factors"],
+            "surrogate.uncertainty_calibration_factors",
+        )
+    )
+    surrogate_settings = krvea_relay.SurrogateFitSettings(
+        gp_training_steps=int(surrogate["gp_training_steps"]),
+        gp_kernel=str(surrogate["gp_kernel"]),
+        gp_noise_mode=str(surrogate["gp_noise_mode"]),
+        gp_fixed_noise_variance=float(surrogate["gp_fixed_noise_variance"]),
+        gp_learned_noise_floor=float(surrogate["gp_learned_noise_floor"]),
+        gp_learned_noise_initial_variance=float(
+            surrogate["gp_learned_noise_initial_variance"]
+        ),
+        gp_posterior_observation_noise=bool(
+            surrogate["gp_posterior_observation_noise"]
+        ),
+        gp_timeout_seconds=float(surrogate["gp_timeout_seconds"]),
+        uncertainty_calibration_factors=factors,  # type: ignore[arg-type]
+        uncertainty_calibration_source=str(
+            surrogate["uncertainty_calibration_source"]
+        ),
+        bounded_moment_quadrature_order=int(
+            surrogate["bounded_moment_quadrature_order"]
+        ),
+        support_distance_quantile=float(
+            surrogate["support_distance_quantile"]
+        ),
+        support_uncertainty_power=float(
+            surrogate["support_uncertainty_power"]
+        ),
+        support_uncertainty_cap=float(surrogate["support_uncertainty_cap"]),
+    )
+    configured_sources = tuple(
+        _repo_path(value)
+        for value in _sequence(
+            campaign["source_directories"], "campaign.source_directories"
+        )
+    )
+    configured_devices = tuple(
+        str(value)
+        for value in _sequence(campaign["device_ids"], "campaign.device_ids")
+    )
+    band = _sequence(campaign["band_ghz"], "campaign.band_ghz")
+    if len(band) != 2:
+        raise ValueError("deep optimization campaign.band_ghz needs two values")
+
     return baseline.CampaignConfig(
-        plan_id=str(plan_id),
-        source_directories=tuple(Path(path) for path in source_directories),
-        output_directory=Path(output_directory),
-        total_budget=int(total_budget),
-        band_ghz=baseline.F5_BAND_GHZ,
-        device_ids=tuple(str(value) for value in device_ids),
-        sampling_config=baseline.SAMPLING_CONFIG,
-        device_config=baseline.DEVICE_CONFIG,
-        project_template=baseline.PROJECT_TEMPLATE,
+        plan_id=str(plan_id if plan_id is not None else campaign["plan_id"]),
+        source_directories=(
+            configured_sources
+            if source_directories is None
+            else tuple(Path(value) for value in source_directories)
+        ),
+        output_directory=(
+            _repo_path(campaign["output_directory"])
+            if output_directory is None
+            else Path(output_directory)
+        ),
+        total_budget=int(
+            total_budget if total_budget is not None else campaign["total_budget"]
+        ),
+        band_ghz=(float(band[0]), float(band[1])),
+        device_ids=(
+            configured_devices
+            if device_ids is None
+            else tuple(str(value) for value in device_ids)
+        ),
+        sampling_config=_repo_path(simulation["sampling_config"]),
+        device_config=_repo_path(simulation["device_config"]),
+        project_template=_repo_path(simulation["project_template"]),
         proposal=proposal,
-        proposal_remote=baseline.F5_PROPOSAL_REMOTE,
-        coordinate_quantum_mm=0.01,
-        allow_disconnected_conductor=False,
-        max_attempts=3,
-        surrogate_settings=deep_surrogate_fit_settings(),
-        exploration_period_batches=EXPLORATION_PERIOD_BATCHES,
-        strategy_name=STRATEGY_NAME,
-        strategy_source=Path(__file__).resolve(),
+        proposal_remote=baseline.RemoteProposalConfig(
+            device_id=str(remote["device_id"]),
+            python_path=str(remote["python_path"]),
+            compute_device=str(remote["compute_device"]),
+            timeout_seconds=float(remote["timeout_seconds"]),
+        ),
+        coordinate_quantum_mm=float(simulation["coordinate_quantum_mm"]),
+        allow_disconnected_conductor=bool(
+            simulation["allow_disconnected_conductor"]
+        ),
+        max_attempts=int(simulation["max_attempts"]),
+        surrogate_settings=surrogate_settings,
+        exploration_period_batches=int(strategy["exploration_period_batches"]),
+        strategy_name=_strategy_name,
+        strategy_source=(
+            Path(__file__).resolve()
+            if _strategy_source is None
+            else Path(_strategy_source).resolve()
+        ),
+        strategy_config_source=path,
     )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--plan-id", default=None)
     parser.add_argument("--source", action="append", dest="sources", type=Path)
-    parser.add_argument("--output", type=Path, default=F5_OUTPUT_DIRECTORY)
+    parser.add_argument("--output", type=Path, default=None)
     parser.add_argument("--budget", type=int, default=None)
     parser.add_argument("--q", type=int, default=None)
     parser.add_argument("--device", action="append", dest="device_ids")
@@ -133,61 +348,35 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _existing_plan(output: Path) -> Mapping[str, Any]:
-    path = output / baseline.PLAN_FILENAME
-    if not path.is_file():
-        return {}
-    payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"invalid existing deep K-RVEA plan: {path}")
-    return payload
-
-
 def config_from_args(args: argparse.Namespace) -> baseline.CampaignConfig:
-    output = args.output.expanduser().resolve()
-    existing = _existing_plan(output)
-    simulation = existing.get("simulation", {})
-    if not isinstance(simulation, Mapping):
-        simulation = {}
-    sources = (
-        tuple(args.sources)
-        if args.sources
-        else tuple(Path(value) for value in existing.get("source_directories", ()))
-        or F5_SOURCE_DIRECTORIES
-    )
-    devices = (
-        tuple(args.device_ids)
-        if args.device_ids
-        else tuple(str(value) for value in simulation.get("device_ids", ()))
-        or baseline.F5_DEVICE_IDS
-    )
     return build_config(
-        plan_id=str(args.plan_id or existing.get("plan_id", F5_PLAN_ID)),
-        source_directories=sources,
-        output_directory=output,
-        total_budget=int(
-            args.budget
-            if args.budget is not None
-            else existing.get("total_budget", F5_TOTAL_BUDGET)
-        ),
-        q=int(args.q if args.q is not None else existing.get("q", F5_Q)),
-        device_ids=devices,
+        config_path=args.config,
+        plan_id=args.plan_id,
+        source_directories=(tuple(args.sources) if args.sources else None),
+        output_directory=args.output,
+        total_budget=args.budget,
+        q=args.q,
+        device_ids=(tuple(args.device_ids) if args.device_ids else None),
     )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    config = config_from_args(args)
-    if not args.prepare_only and not args.stop_after_proposal:
-        if F5_REQUIRE_CONFIRMATION and not args.yes:
-            answer = input(
-                "Type RUN to start/resume deep K-RVEA plan "
-                f"{config.plan_id} ({config.total_budget} new evaluations): "
-            )
-            if answer.strip() != "RUN":
-                print("Cancelled; no proposal worker or solver was started.")
-                return 1
     try:
+        config = config_from_args(args)
+        print(
+            f"[Deep K-RVEA] config={Path(args.config).expanduser().resolve()}",
+            flush=True,
+        )
+        if not args.prepare_only and not args.stop_after_proposal:
+            if F5_REQUIRE_CONFIRMATION and not args.yes:
+                answer = input(
+                    "Type RUN to start/resume deep K-RVEA plan "
+                    f"{config.plan_id} ({config.total_budget} new evaluations): "
+                )
+                if answer.strip() != "RUN":
+                    print("Cancelled; no proposal worker or solver was started.")
+                    return 1
         return baseline.run_campaign(
             config,
             prepare_only=args.prepare_only,

@@ -263,39 +263,55 @@ Maid workers.  Re-running the command resumes the frozen active batch.
 
 ### Isolated late-stage deep optimization
 
-`深度优化_krvea.py` is a separate entrypoint for the dense late stage after the
-three completed K-RVEA campaigns.  It intentionally does not replace the
-baseline policy in `run_krvea.py`, because its calibration has not been tested
-for the initial sparse-data phase.
+`深度优化_krvea.py` is a separate entrypoint for the dense late stage.  It
+intentionally does not replace the baseline policy in `run_krvea.py`, because
+this strategy has not been tested for the initial sparse-data phase.  Its
+algorithm identity is fixed in Python, while every round-specific numerical
+parameter and path is supplied by a strict JSON document.  Unknown or missing
+JSON fields are rejected instead of silently falling back to an old value.
 
-The frozen deep-stage plan is `msabp-krvea-11var-deep-64-004`: 768 historical
-observations plus 64 new four-objective evaluations in `q=4` batches.  It keeps
-the same Matérn-5/2 GPs and conservative `mean + 1.645 * std` selection, with
-two late-stage changes:
+The default `configs/optimization/deep_krvea_round5.json` defines
+`msabp-krvea-11var-deep-64-005`: the complete 832-row archive through round
+four (819 successful GP observations and 13 retained penalties), followed by
+64 new evaluations in `q=4` batches.  It keeps the same Matérn-5/2 models,
+K-RVEA operators, and conservative `mean + 1.645 * std` rule.  Only numerical
+parameters change:
 
-- the S11 uncertainty calibration factor is raised from `1.1` to `2.5`; a
-  scale-only replay of round three changes one-sided coverage from 57/63
-  (90.5%) to 60/63 (95.2%);
-- one exploration candidate is reserved only in every second batch, reducing
-  the planned exploration share from 16/64 to 8/64 points.
+- the S11, efficiency-loss, and cap-gain uncertainty factors are respectively
+  `4.75`, `3.05`, and `1.85`; scale-only replay on the 59 successful round-four
+  selections covers 57/59 (96.6%) for each expensive objective;
+- one exploration sentinel is reserved every fourth batch, or 4/64 planned
+  points.  Round four used 8/64 exploration points and only one reached the
+  final four-objective front.
 
 Prepare the immutable history cache and plan without SSH or CST:
 
 ```powershell
 C:\Users\David\.conda\envs\cstpy\python.exe `
-  scripts\optimization\深度优化_krvea.py --prepare-only
+  scripts\optimization\深度优化_krvea.py `
+  --config configs\optimization\deep_krvea_round5.json `
+  --prepare-only
 ```
 
 Start or resume the real campaign:
 
 ```powershell
 C:\Users\David\.conda\envs\cstpy\python.exe `
-  scripts\optimization\深度优化_krvea.py --yes
+  scripts\optimization\深度优化_krvea.py `
+  --config configs\optimization\deep_krvea_round5.json `
+  --yes
 ```
 
-Re-running the same command resumes the frozen active batch.  The plan records
-the deep strategy source hash, surrogate calibration, and alternating
-exploration schedule so a baseline/deep-policy mix is rejected as drift.
+Re-running the same command resumes the frozen active batch.  CLI campaign
+arguments such as `--budget`, `--q`, `--source`, and `--output` explicitly
+override JSON; an existing plan never overrides the JSON in the other
+direction.  The immutable plan records hashes for both the deep Python entry
+and its JSON file, plus all resolved surrogate and proposal settings.
+
+For a later round, copy the JSON to a new filename, append the completed round
+to `campaign.source_directories`, and change at least `plan_id`,
+`output_directory`, and `strategy.seed`.  Do not edit a round's JSON after its
+plan has been created; use the original file to resume it.
 
 The implementation is an independent Python reimplementation informed by the
 authors' MATLAB repository at commit
