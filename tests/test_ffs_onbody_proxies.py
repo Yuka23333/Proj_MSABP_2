@@ -74,6 +74,17 @@ def test_proxy_boundaries_must_exist_on_exported_grid() -> None:
         compute_onbody_proxies(_isotropic_ffs(), theta_h_deg=72.0)
 
 
+def test_frequency_band_is_inclusive_and_applied_before_output() -> None:
+    result = compute_onbody_proxies(_isotropic_ffs(), band_ghz=(3.2, 4.8))
+
+    assert result["freq_ghz"].tolist() == [4.8]
+
+
+def test_frequency_band_rejects_empty_intersection() -> None:
+    with pytest.raises(ValueError, match="contains no frequency samples"):
+        compute_onbody_proxies(_isotropic_ffs(), band_ghz=(5.0, 6.0))
+
+
 def test_phi90_endfire_maps_theta_to_vertical_and_phi_to_horizontal() -> None:
     ffs = _isotropic_ffs()
     theta_index = int(np.flatnonzero(ffs["theta_deg"] == 90.0)[0])

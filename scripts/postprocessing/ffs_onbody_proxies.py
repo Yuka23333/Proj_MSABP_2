@@ -2,7 +2,8 @@
 
 Each CST ``.ffs`` file may contain many frequencies. The output therefore has
 one row per input file and frequency; no implicit broadband aggregation is
-applied. All angular integrals use the physical solid-angle measure
+applied. An optional frequency band is applied before the angular proxy
+calculations. All angular integrals use the physical solid-angle measure
 ``sin(theta) dtheta dphi`` on CST's exported regular grid.
 
 The proxy definitions intentionally retain their original names. In these
@@ -64,6 +65,7 @@ FIXED_THETA_H80_DEG = 80.0
 HORIZON_THETA_DEG = 90.0
 FORWARD_ENDFIRE_PHI_DEG = 90.0
 GRID_TOLERANCE_DEG = 1.0e-10
+FREQUENCY_TOLERANCE_GHZ = 1.0e-12
 
 
 def _require_vector(
@@ -80,6 +82,42 @@ def _require_vector(
     if not np.isfinite(values).all():
         raise ValueError(f"FFS {name} contains non-finite values")
     return values
+
+
+def _normalize_band_ghz(
+    band_ghz: tuple[float, float] | None,
+) -> tuple[float, float] | None:
+    if band_ghz is None:
+        return None
+    if len(band_ghz) != 2:
+        raise ValueError("frequency band must contain exactly two bounds")
+    lower_ghz, upper_ghz = (float(value) for value in band_ghz)
+    if not (
+        math.isfinite(lower_ghz)
+        and math.isfinite(upper_ghz)
+        and 0.0 < lower_ghz <= upper_ghz
+    ):
+        raise ValueError("frequency band must satisfy 0 < lower <= upper GHz")
+    return lower_ghz, upper_ghz
+
+
+def _frequency_mask(
+    frequency_hz: np.ndarray,
+    band_ghz: tuple[float, float] | None,
+) -> np.ndarray:
+    normalized_band = _normalize_band_ghz(band_ghz)
+    if normalized_band is None:
+        return np.ones(len(frequency_hz), dtype=bool)
+    lower_ghz, upper_ghz = normalized_band
+    frequency_ghz = frequency_hz / 1.0e9
+    mask = (frequency_ghz >= lower_ghz - FREQUENCY_TOLERANCE_GHZ) & (
+        frequency_ghz <= upper_ghz + FREQUENCY_TOLERANCE_GHZ
+    )
+    if not np.any(mask):
+        raise ValueError(
+            f"FFS contains no frequency samples in [{lower_ghz:g}, {upper_ghz:g}] GHz"
+        )
+    return mask
 
 
 def _validate_angle_grid(theta_deg: np.ndarray, phi_deg: np.ndarray) -> None:
@@ -176,29 +214,38 @@ def compute_onbody_proxies(
     source_path: str | Path = "<memory>",
     theta_h_deg: float = DEFAULT_THETA_H_DEG,
     theta_cap_deg: float = DEFAULT_THETA_CAP_DEG,
+    band_ghz: tuple[float, float] | None = None,
 ) -> pd.DataFrame:
-    """Compute the original on-body proxies at every exported frequency."""
+    """Compute on-body proxies at each selected exported frequency."""
 
     frequency_hz = _require_vector(ffs, "freq")
-    frequency_count = len(frequency_hz)
-    if frequency_count == 0:
+    exported_frequency_count = len(frequency_hz)
+    if exported_frequency_count == 0:
         raise ValueError("FFS frequency grid is empty")
     theta_deg = _require_vector(ffs, "theta_deg")
     phi_deg = _require_vector(ffs, "phi_deg")
-    p_rad = _require_vector(ffs, "p_rad", length=frequency_count)
-    p_acc = _require_vector(ffs, "p_acc", length=frequency_count)
-    p_stim = _require_vector(ffs, "p_stim", length=frequency_count)
+    p_rad = _require_vector(ffs, "p_rad", length=exported_frequency_count)
+    p_acc = _require_vector(ffs, "p_acc", length=exported_frequency_count)
+    p_stim = _require_vector(ffs, "p_stim", length=exported_frequency_count)
     _validate_angle_grid(theta_deg, phi_deg)
 
     e_theta = np.asarray(ffs["E_theta"], dtype=np.complex128)
     e_phi = np.asarray(ffs["E_phi"], dtype=np.complex128)
-    expected_shape = (frequency_count, len(phi_deg), len(theta_deg))
+    expected_shape = (exported_frequency_count, len(phi_deg), len(theta_deg))
     if e_theta.shape != expected_shape or e_phi.shape != expected_shape:
         raise ValueError(
             "FFS electric-field arrays do not match frequency and angular grids"
         )
+    selected_frequency = _frequency_mask(frequency_hz, band_ghz)
+    frequency_hz = frequency_hz[selected_frequency]
+    p_rad = p_rad[selected_frequency]
+    p_acc = p_acc[selected_frequency]
+    p_stim = p_stim[selected_frequency]
+    e_theta = e_theta[selected_frequency]
+    e_phi = e_phi[selected_frequency]
     if not (np.isfinite(e_theta).all() and np.isfinite(e_phi).all()):
         raise ValueError("FFS electric-field arrays contain non-finite values")
+    frequency_count = len(frequency_hz)
 
     theta_h = float(theta_h_deg)
     theta_cap = float(theta_cap_deg)
@@ -386,6 +433,7 @@ def compute_all(
     *,
     theta_h_deg: float = DEFAULT_THETA_H_DEG,
     theta_cap_deg: float = DEFAULT_THETA_CAP_DEG,
+    band_ghz: tuple[float, float] | None = None,
     fail_fast: bool = False,
     workers: int = DEFAULT_WORKERS,
 ) -> tuple[pd.DataFrame, list[tuple[Path, str]]]:
@@ -401,9 +449,16 @@ def compute_all(
     normalized_paths = [Path(path) for path in paths]
     if not normalized_paths:
         raise ValueError("no FFS input paths were provided")
+    normalized_band = _normalize_band_ghz(band_ghz)
 
     tasks = [
-        (index, str(path), float(theta_h_deg), float(theta_cap_deg))
+        (
+            index,
+            str(path),
+            float(theta_h_deg),
+            float(theta_cap_deg),
+            normalized_band,
+        )
         for index, path in enumerate(normalized_paths)
     ]
     tables: list[pd.DataFrame | None] = [None] * len(tasks)
@@ -468,11 +523,11 @@ def compute_all(
 
 
 def _compute_one(
-    task: tuple[int, str, float, float],
+    task: tuple[int, str, float, float, tuple[float, float] | None],
 ) -> tuple[int, pd.DataFrame | None, str | None]:
     """Parse and reduce one FFS file; kept top-level for Windows workers."""
 
-    index, path_text, theta_h_deg, theta_cap_deg = task
+    index, path_text, theta_h_deg, theta_cap_deg, band_ghz = task
     path = Path(path_text)
     try:
         table = compute_onbody_proxies(
@@ -480,6 +535,7 @@ def _compute_one(
             source_path=path,
             theta_h_deg=theta_h_deg,
             theta_cap_deg=theta_cap_deg,
+            band_ghz=band_ghz,
         )
     except Exception as exc:
         return index, None, f"{type(exc).__name__}: {exc}"
@@ -542,6 +598,13 @@ def build_parser() -> argparse.ArgumentParser:
             f"(default: {DEFAULT_WORKERS}; use 1 for serial execution)"
         ),
     )
+    parser.add_argument(
+        "--band",
+        nargs=2,
+        type=float,
+        metavar=("LOW_GHZ", "HIGH_GHZ"),
+        help="retain only exported frequency samples inside this inclusive band",
+    )
     parser.add_argument("--fail-fast", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     return parser
@@ -557,6 +620,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         paths,
         theta_h_deg=args.theta_h,
         theta_cap_deg=args.theta_cap,
+        band_ghz=None if args.band is None else (args.band[0], args.band[1]),
         fail_fast=args.fail_fast,
         workers=args.workers,
     )
