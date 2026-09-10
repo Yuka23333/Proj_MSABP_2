@@ -1,0 +1,80 @@
+{
+  "schema_version": 2,
+  "campaign": {
+    "plan_id": "msabp-phase2-krvea-roi-radgain-64-001",
+    "source_directories": [
+      "results/raw/doe-11var-branch-up-lhs-512-001",
+      "results/raw/msabp-krvea-11var-smoke-128-001",
+      "results/raw/msabp-krvea-11var-calibrated-64-002",
+      "results/raw/msabp-krvea-11var-calibrated-64-003",
+      "results/raw/msabp-krvea-11var-deep-64-004",
+      "results/raw/msabp-krvea-11var-deep-64-005",
+      "results/raw/msabp-krvea-11var-stage2-learned-64-006"
+    ],
+    "output_directory": "results/raw/msabp-phase2-krvea-roi-radgain-64-001",
+    "total_budget": 64,
+    "q": 4,
+    "band_ghz": [3.1, 4.8],
+    "device_ids": ["convallariag5", "coconutg2"]
+  },
+  "strategy": {
+    "name": "phase2_fixed_roi_radiation_gain_v1",
+    "seed": 20260909,
+    "reference_partitions": 14,
+    "inner_evaluations": 10000,
+    "population_size": null,
+    "crossover_probability": 0.8,
+    "crossover_eta": 20.0,
+    "mutation_probability": null,
+    "mutation_eta": 20.0,
+    "apd_alpha": 1.0,
+    "empty_growth_fraction": 0.05,
+    "uniqueness_tolerance": 1e-10,
+    "conservative_beta": 1.645,
+    "uncertainty_scale_mode": "already_standardized",
+    "exploration_slots": 1,
+    "exploration_period_batches": 4,
+    "exploration_novelty_weight": 1.0,
+    "exploration_pool_size": 2048
+  },
+  "surrogate": {
+    "gp_training_steps": 400,
+    "gp_kernel": "matern_5_2",
+    "gp_noise_mode": "fixed",
+    "gp_fixed_noise_variance": 1e-6,
+    "gp_learned_noise_floor": 1e-4,
+    "gp_learned_noise_initial_variance": 1e-2,
+    "gp_posterior_observation_noise": false,
+    "gp_timeout_seconds": 600.0,
+    "uncertainty_calibration_factors": [1.0, 1.0],
+    "uncertainty_calibration_source": "phase2_roi_radiation_gain_initial_uncalibrated",
+    "bounded_moment_quadrature_order": 20,
+    "support_distance_quantile": 0.95,
+    "support_uncertainty_power": 1.0,
+    "support_uncertainty_cap": 4.0
+  },
+  "proposal_remote": {
+    "device_id": "coconutg2",
+    "python_path": "C:\\Users\\telecom\\miniforge3\\envs\\bocuda\\python.exe",
+    "compute_device": "cuda",
+    "timeout_seconds": 1800.0
+  },
+  "simulation": {
+    "sampling_config": "configs/optimization/krvea_11var_branch_up.json",
+    "device_config": "configs/simulation/princess_devices.json",
+    "project_template": "simulations/models/msa-bp.cst",
+    "coordinate_quantum_mm": 0.01,
+    "allow_disconnected_conductor": false,
+    "max_attempts": 3
+  },
+  "phase2_metric": {
+    "name": "frozen_roi_theta_radiation_gain_v1",
+    "frequency_ghz": 3.6,
+    "theta_bounds_deg": [55.0, 85.0],
+    "phi_center_deg": 90.0,
+    "phi_half_width_deg": 50.0,
+    "component": "E_theta",
+    "gain_type": "radiation_gain",
+    "spatial_average": "linear_power_solid_angle_weighted"
+  }
+}

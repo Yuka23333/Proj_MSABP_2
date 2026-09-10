@@ -33,6 +33,13 @@ Upper corner 4 个、Lower corner 6 个、Branch 6 个。所有 23 个变量默�
 "reference": "nominal"}`。当前 schema 不再使用 Global/Group 范围继承；代码中的
 Group 只用于分类和解析结果展示。
 
+## 第二阶段 K-RVEA
+
+`phase2_krvea_roi_radiation_gain_64.json` 使用独立的 schema、plan ID 和输出
+目录，服务于 `scripts/optimization/run_phase2_krvea.py`。其中
+`phase2_metric` 是被冻结的传播代理指标契约；修改频点、角域、极化或增益类型时，
+必须另建入口、配置和目标 schema，不能原地恢复当前 campaign。
+
 ## 几何策略
 
 - 坐标以 `0.01 mm` 量化；

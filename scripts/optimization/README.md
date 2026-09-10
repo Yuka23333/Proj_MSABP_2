@@ -321,3 +321,40 @@ Y. Jin, K. Miettinen, J. Hakanen, and K. Sindhya, "A surrogate-assisted
 reference vector guided evolutionary algorithm for computationally expensive
 many-objective optimization," IEEE Transactions on Evolutionary Computation,
 22(1):129--142, 2018.
+
+### Phase 2: frozen propagation-proxy K-RVEA
+
+`run_phase2_krvea.py` is a new, isolated three-objective entrypoint.  It does
+not alter the old four-objective campaign or reinterpret its stored results.
+Its all-minimize vector is:
+
+1. worst linear `|S11|` over 3.1--4.8 GHz;
+2. negative E-theta radiation gain in dBi at 3.6 GHz, spatially averaged in
+   linear power over theta=55--85 degrees and phi=90+/-50 degrees;
+3. exact normalized substrate area.
+
+Radiation gain already contains `Rad_Eff`, while mismatch loss is excluded;
+therefore `Rad_Eff` is not duplicated as a separate target and S11 remains
+independent.  The default JSON creates a new 64-point, `q=4` plan and uses 14
+three-objective reference partitions (120 reference vectors, matching the old
+four-objective population count).
+
+Build the Phase-2 observation cache and immutable plan without SSH or CST:
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\optimization\run_phase2_krvea.py `
+  --config configs\optimization\phase2_krvea_roi_radiation_gain_64.json `
+  --prepare-only
+```
+
+The first pass reads the historical FFS archive and may take several minutes;
+later runs reuse the hash-bound ROI cache.  After pushing and pulling the new
+GPU worker to CoconutG2, start or resume the real campaign with:
+
+```powershell
+C:\Users\David\.conda\envs\cstpy\python.exe `
+  scripts\optimization\run_phase2_krvea.py `
+  --config configs\optimization\phase2_krvea_roi_radiation_gain_64.json `
+  --yes
+```
