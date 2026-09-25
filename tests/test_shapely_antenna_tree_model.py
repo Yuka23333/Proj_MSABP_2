@@ -94,7 +94,7 @@ def test_known_default_extent():
     assert bounds[3] - bounds[1] == pytest.approx(40.6)
 
 
-@pytest.mark.parametrize("raw,effective", [(0, 0), (.5, .5), (.8, .8), (.85, .9), (.9, 1), (1, 1)])
+@pytest.mark.parametrize("raw,effective", [(0, 0), (.5, .5), (.9, .9), (.925, .95), (.95, 1), (.97, 1), (1, 1)])
 def test_k2_relaxation(raw, effective):
     assert model.relax_upper_k(raw) == pytest.approx(effective)
     assert model.relax_upper_k(raw, 0) == raw
@@ -113,7 +113,7 @@ def test_invalid_relaxation(raw, s):
 def test_snapped_face_bounds_in_all_directions(direction, reverse, k1):
     span = (2.3, 12.7) if not reverse else (12.7, 2.3)
     face = {'span': span, 'cap': span, 'base': 15}
-    info = model._build_branch(k1, .95, .5, face, direction, box(0, 0, 30, 30))
+    info = model._build_branch(k1, .97, .5, face, direction, box(0, 0, 30, 30))
     axis = 0 if direction in ('up', 'down') else 1
     lo, hi = [p[axis] for p in info['endpoints']]
     assert 2.3 - 1e-12 <= lo <= hi <= 12.7 + 1e-12
@@ -125,14 +125,14 @@ def test_snapped_face_bounds_in_all_directions(direction, reverse, k1):
         assert lo == 2.3
         assert hi == 12.7
     assert info['effective_k2'] == 1
-    assert info['k'][1] == .95
+    assert info['k'][1] == .97
 
 
 def test_saturation_applies_recursively_without_mutating_tree():
     tree = model.default_tree()
     parent = 'U1'
     for side in ('R', 'D', 'L', 'U'):
-        parent = model.add_branch(tree, parent, side, k=(.75, .95, .5))
+        parent = model.add_branch(tree, parent, side, k=(.75, .97, .5))
     before = deepcopy(tree)
     saturated = model.build(model.default_params(), tree)
     linear = model.build(model.default_params(), tree, snap_fraction=0)
@@ -143,3 +143,72 @@ def test_saturation_applies_recursively_without_mutating_tree():
     slot = saturated['Slot']
     assert slot.is_valid
     assert slot.symmetric_difference(scale(slot, xfact=-1, origin=(0, 0))).area < 1e-8
+
+
+def _extend_tip(info, distance):
+    """The branch rectangle pushed `distance` further along its growth direction."""
+    dx, dy = model.DIRECTIONS[info["direction"]]
+    min_x, min_y, max_x, max_y = info["branch"].bounds
+    return box(min_x + min(dx, 0) * distance, min_y + min(dy, 0) * distance,
+               max_x + max(dx, 0) * distance, max_y + max(dy, 0) * distance)
+
+
+def test_full_length_branches_keep_tip_clearance_to_patch_edge():
+    tree = model.default_tree()
+    for node in tree.values():
+        node["k"][2] = 1.0
+    parent = "U1"
+    for side in ("R", "U", "L", "D"):
+        parent = model.add_branch(tree, parent, side, k=(.6, .5, 1.0))
+    model.add_branch(tree, "D1", "R", k=(.4, .5, 1.0))
+    geometry = model.build(model.default_params(), tree)
+    patch = geometry["Patch"]
+    clearance = model.BRANCH_TIP_CLEARANCE
+    for node_id, info in geometry["branches"].items():
+        if info["length"] > 0:
+            # One clearance beyond the tip is still copper, never outside the patch.
+            assert _extend_tip(info, clearance).difference(patch).area < 1e-9, node_id
+
+
+def test_zero_tip_clearance_restores_flush_length():
+    params, tree = model.default_params(), model.default_tree()
+    guarded = model.build(params, tree)["branches"]["U1"]["max_length"]
+    flush = model.build(params, tree, tip_clearance=0)["branches"]["U1"]["max_length"]
+    assert flush - guarded == pytest.approx(model.BRANCH_TIP_CLEARANCE)
+
+
+@pytest.mark.parametrize("clearance", [-0.1, float("nan"), float("inf")])
+def test_invalid_tip_clearance(clearance):
+    with pytest.raises(ValueError):
+        model.build(model.default_params(), model.default_tree(), tip_clearance=clearance)
+
+
+def test_inward_lower_branch_stops_clearance_short_of_feed():
+    tree = model.default_tree()
+    tree["D1"]["k"][2] = .8
+    child = model.add_branch(tree, "D1", "L", k=(.5, .5, 1.0))
+    geometry = model.build(model.default_params(), tree)
+    branch = geometry["branches"][child]["branch"]
+    assert branch.intersection(geometry["Feed_Region"]).area == 0
+    assert branch.distance(geometry["Feed_Region"]) == pytest.approx(model.BRANCH_TIP_CLEARANCE)
+    flush = model.build(model.default_params(), tree, tip_clearance=0)
+    assert flush["branches"][child]["branch"].distance(flush["Feed_Region"]) == pytest.approx(0)
+    assert flush["branches"][child]["branch"].intersection(flush["Feed_Region"]).area == 0
+
+
+def test_feed_region_is_an_obstacle_at_every_depth():
+    import random
+
+    rng = random.Random(4)
+    for _ in range(40):
+        tree = model.default_tree()
+        for _ in range(12):
+            parent = rng.choice(["SLOT", *tree])
+            side = rng.choice(model.child_sides(tree, parent))
+            node = model.add_branch(tree, parent, side)
+            tree[node]["k"] = [rng.uniform(*model.k_range(tree, node, i)) for i in range(3)]
+            tree[node]["k"][2] = rng.choice([1.0, tree[node]["k"][2]])
+        for clearance in (0, model.BRANCH_TIP_CLEARANCE):
+            geometry = model.build(model.default_params(), tree, tip_clearance=clearance)
+            for node_id, info in geometry["branches"].items():
+                assert info["branch"].intersection(geometry["Feed_Region"]).area < 1e-9, node_id

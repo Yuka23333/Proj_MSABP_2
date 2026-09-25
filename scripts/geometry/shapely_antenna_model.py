@@ -130,41 +130,43 @@ def parameters_from_mapping(values: Mapping[str, Any]) -> ShapelyAntennaParamete
     )
 
 
-def _boundary_hit_ys(geometry: Any) -> list[float]:
-    if geometry.is_empty:
-        return []
-    if geometry.geom_type == "Point":
-        return [float(geometry.y)]
-    if geometry.geom_type == "LineString":
-        return [float(coordinate[1]) for coordinate in geometry.coords]
-    if hasattr(geometry, "geoms"):
-        return [
-            y_value
-            for part in geometry.geoms
-            for y_value in _boundary_hit_ys(part)
-        ]
-    return []
-
-
-def _ray_distance(
-    x_value: float,
+def _strip_reach(
+    left_x: float,
+    right_x: float,
     base_y: float,
     shape: Polygon,
     *,
     direction: int,
 ) -> float:
+    """Distance a branch spanning [left_x, right_x] can grow from base_y before any
+    part of it leaves shape.
+
+    The whole strip is checked, not only rays at its two edges: a boundary dip
+    strictly between the edges (e.g. the gap between stacked lower-corner ears)
+    would otherwise let the branch cut through it. A zero-width strip degrades
+    to a single ray.
+    """
     ray_end = shape.bounds[3] + 10.0 if direction > 0 else shape.bounds[1] - 10.0
-    ray = LineString([(x_value, base_y), (x_value, ray_end)])
-    hit_ys = _boundary_hit_ys(ray.intersection(shape.boundary))
+    low_y, high_y = min(base_y, ray_end), max(base_y, ray_end)
+    if right_x - left_x > 1e-12:
+        strip: Any = box(left_x, low_y, right_x, high_y)
+        size_attribute = "area"
+    else:
+        strip = LineString([(left_x, low_y), (left_x, high_y)])
+        size_attribute = "length"
+    outside = strip.difference(shape)
+    parts = [
+        part
+        for part in getattr(outside, "geoms", [outside])
+        if not part.is_empty and getattr(part, size_attribute) > 1e-9
+    ]  # drop float slivers along shared edges
     if direction > 0:
-        candidates = [value for value in hit_ys if value > base_y + 1e-9]
-        if not candidates:
-            raise ValueError("upward branch ray does not reach the upper substrate")
-        return min(candidates) - base_y
-    candidates = [value for value in hit_ys if value < base_y - 1e-9]
-    if not candidates:
-        raise ValueError("downward branch ray does not reach the lower substrate")
-    return base_y - max(candidates)
+        if not parts:
+            raise ValueError("upward branch strip does not reach the upper substrate edge")
+        return min(part.bounds[1] for part in parts) - base_y
+    if not parts:
+        raise ValueError("downward branch strip does not reach the lower substrate edge")
+    return base_y - max(part.bounds[3] for part in parts)
 
 
 def _build_branch_pair(
@@ -185,9 +187,8 @@ def _build_branch_pair(
     max_half_width = min(slot_max_x - midpoint_x, midpoint_x - near_x)
     left_x = midpoint_x - k2 * max_half_width
     right_x = midpoint_x + k2 * max_half_width
-    max_length = min(
-        _ray_distance(left_x, base_y, substrate, direction=direction),
-        _ray_distance(right_x, base_y, substrate, direction=direction),
+    max_length = max(
+        0.0, _strip_reach(left_x, right_x, base_y, substrate, direction=direction)
     )
     length = k3 * max_length
     if direction > 0:

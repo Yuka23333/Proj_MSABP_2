@@ -40,7 +40,8 @@ model.delete_subtree(tree, child)
   validate or clamp values passed to `build`. Only root-attached branch K2
   permits zero in those slider ranges. Children of a zero-width branch retain
   the original center-line attachment behavior.
-- `build` returns `Substrate_Full`, `Patch`, `Slot`, `CPW_Feed_Pin`, `SMA_Pads`,
+- `build` returns `Substrate_Full`, `Patch`, `Feed_Region`, `Growth_Domain`,
+  `Slot`, `CPW_Feed_Pin`, `SMA_Pads`,
   `slot_main`, `Upper_Substrate`, `Lower_Substrate`, `branches`, and `metal_area`.
   Geometry values are native Shapely objects; `branches` contains per-node
   construction information and `metal_area` is a scalar.
@@ -52,8 +53,8 @@ model.delete_subtree(tree, child)
 ### K2 saturation
 
 All tree depths use an upper saturation band on branch K2 (not corner K2).
-For `s = 0.10`, raw K2 up to 0.8 stays unchanged, 0.8--0.9 maps linearly
-to 0.8--1, and 0.9--1 maps to exactly 1. K1 and K3 are unchanged. Raw K2
+For `s = 0.05`, raw K2 up to 0.9 stays unchanged, 0.9--0.95 maps linearly
+to 0.9--1, and 0.95--1 maps to exactly 1. K1 and K3 are unchanged. Raw K2
 is retained in the tree and `branches[id]["k"]`; the transformed value is
 available as `branches[id]["effective_k2"]`. The demo displays both.
 
@@ -63,6 +64,23 @@ At saturation the width touches the nearer end of the attachment face exactly;
 for a child positioned in the tipward half this is the parent's tip. K1 at
 either endpoint can still give zero width. No growth boundary is relaxed.
 The mapping is continuous but has derivative corners and a flat upper band.
+
+### Feed region obstacle
+
+Branches grow inside `Growth_Domain = Patch - Feed_Region`, where `Feed_Region`
+is the CPW feed slot plus the CPW pin. The feed is therefore an obstacle for every
+branch at every depth, not only for root branches through the lower face's
+keep-out. Matching stubs are not part of `Feed_Region`. `build` returns both
+`Feed_Region` and `Growth_Domain`.
+
+### Tip clearance
+
+K3 scales a maximum length that stops `BRANCH_TIP_CLEARANCE` (1 mm, equal to
+`FIXED_OFFSET`) short of the growth-domain edge (patch edge or feed region), so
+even K3 = 1 leaves that much copper beyond every branch tip. The Y axis gets no
+clearance: inward branches still reach it exactly, where they join their mirror
+image. Where the edge is closer than the clearance, the branch length is zero.
+Use `build(params, tree, tip_clearance=0)` for the earlier flush behaviour.
 
 The tree demo now imports this model, and its existing autoplay stays compatible.
 The production `shapely_antenna_model.py`, sampler, polygon export schema and CST

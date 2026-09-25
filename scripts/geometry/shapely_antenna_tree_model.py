@@ -47,7 +47,16 @@ CPW_FEED_PIN_CHAMFER_HEIGHT = 0.3
 
 K_RANGE = (0.05, 1.0)
 ABS_RANGE_FACTORS = (0.6, 1.4)
-BRANCH_K2_SNAP_FRACTION = 0.10
+BRANCH_K2_SNAP_FRACTION = 0.05
+# Copper kept between a branch tip and the growth-domain edge (patch edge or feed
+# region) even at K3 = 1. The Y axis gets none: an inward branch still runs right
+# up to it, where it is meant to join its mirror image.
+BRANCH_TIP_CLEARANCE = FIXED_OFFSET
+
+
+def _check_tip_clearance(tip_clearance):
+    if not isfinite(tip_clearance) or tip_clearance < 0.0:
+        raise ValueError("tip_clearance must be finite and >= 0")
 
 
 def relax_upper_k(k, snap_fraction=BRANCH_K2_SNAP_FRACTION):
@@ -241,7 +250,7 @@ def _branch_info(k, direction, k1_span, midpoint, max_width, half_width, max_len
 
 
 def _build_branch(k1, k2, k3, face, direction, patch,
-                  *, snap_fraction=BRANCH_K2_SNAP_FRACTION):
+                  *, snap_fraction=BRANCH_K2_SNAP_FRACTION, tip_clearance=BRANCH_TIP_CLEARANCE):
     """Grow one branch off a parent face.
 
     face = {"base": coordinate of the face along the growth axis,
@@ -249,7 +258,11 @@ def _build_branch(k1, k2, k3, face, direction, patch,
             "cap":  (a, b) face ends the branch width may not cross}.
     Every "left" branch is also capped at the Y axis: past it a branch only
     overlaps its own mirror image, so the geometry would stop changing while K3
-    kept moving. That keeps the whole tree in x >= 0 before mirroring."""
+    kept moving. That keeps the whole tree in x >= 0 before mirroring.
+    `patch` is the growth domain (metal patch minus feed region); max_length stops
+    tip_clearance short of its edge, so K3 = 1 still leaves that much copper
+    beyond the tip."""
+    _check_tip_clearance(tip_clearance)
     (a, b), (c0, c1), base = face["span"], face["cap"], face["base"]
     mid = a + k1 * (b - a)
     max_width = max(0.0, min(abs(mid - c0), abs(c1 - mid)))
@@ -267,7 +280,7 @@ def _build_branch(k1, k2, k3, face, direction, patch,
         if k1 == 0.5 and sorted((a, b)) == [cap_low, cap_high]:
             low, high = cap_low, cap_high
 
-    max_length = max(0.0, strip_reach(low, high, base, patch, direction))
+    max_length = max(0.0, strip_reach(low, high, base, patch, direction) - tip_clearance)
     if direction == "left":
         max_length = min(max_length, max(0.0, base))
 
@@ -294,9 +307,11 @@ def _branch_faces(info):
             "D": {"base": min_y, "span": run, "cap": run}}
 
 
-def build(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION):
+def build(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION,
+          tip_clearance=BRANCH_TIP_CLEARANCE):
     """Build every polygon of the antenna from the shape parameters and the branch tree."""
     relax_upper_k(0.0, snap_fraction)  # Validate even for an empty tree.
+    _check_tip_clearance(tip_clearance)
     p = params
 
     slot_len = p["SLOT_MAIN_LENGTH"]
@@ -432,9 +447,14 @@ def build(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION):
     Matching_Stub2 = box(-3, 8 + low_min_y, 3, 8.9 + low_min_y)
 
     # --- branches ---------------------------------------------------------
-    # Every shaper uses only the metal patch as its boundary: branches may overlap
-    # each other or other slots, and may cut off copper islands.
+    # Shapers grow inside the metal patch minus the feed region (CPW slot + pin),
+    # so no branch at any depth cuts into the feed. Branches may still overlap
+    # each other or the other slots, and may cut off copper islands.
     Patch = unary_union([Upper_Substrate, Lower_Substrate])
+    Feed_Region = unary_union([
+        CPW_Feed_Slot_1, CPW_Feed_Slot_2, CPW_Feed_Pin_1, CPW_Feed_Pin_2,
+    ])
+    Growth_Domain = Patch.difference(Feed_Region)
     # Main-slot faces: the upper one keeps 1 mm from the Y axis (2 mm gap to the
     # mirror branch); the lower one keeps clear of the CPW feed slot.
     keepout_x = CPW_FEED_SLOT_WIDE_WIDTH + CPW_KEEPOUT_MARGIN
@@ -448,8 +468,8 @@ def build(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION):
     for node_id, node in tree.items():  # parents come before children
         face = faces[node["parent"]][node["side"]]
         branches[node_id] = _build_branch(
-            *node["k"], face, SIDE_DIRECTION[node["side"]], Patch,
-            snap_fraction=snap_fraction,
+            *node["k"], face, SIDE_DIRECTION[node["side"]], Growth_Domain,
+            snap_fraction=snap_fraction, tip_clearance=tip_clearance,
         )
         faces[node_id] = _branch_faces(branches[node_id])
 
@@ -474,6 +494,8 @@ def build(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION):
     return {
         "Substrate_Full": Substrate_Full,
         "Patch": Patch,
+        "Feed_Region": Feed_Region,
+        "Growth_Domain": Growth_Domain,
         "Slot": Slot,
         "CPW_Feed_Pin": CPW_Feed_Pin,
         "SMA_Pads": (SMA_GND_Pad_1, SMA_GND_Pad_2),

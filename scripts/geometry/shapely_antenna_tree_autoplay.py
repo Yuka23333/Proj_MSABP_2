@@ -3,7 +3,7 @@
 Drives the real GUI with random edits (add a branch / delete a subtree / slide a K)
 through its own handlers, and after every step checks that
   - the Treeview shows exactly the branches in the model,
-  - no branch leaves the metal patch,
+  - no branch leaves the metal patch or cuts into the feed region (CPW slot + pin),
   - no branch crosses the Y axis (the tree lives in x >= 0 before mirroring).
 
     python shapely_antenna_tree_autoplay.py                   # watchable: 0.5 s per step
@@ -48,6 +48,9 @@ def check(app):
         outside = info["branch"].difference(shapes["Patch"]).area
         if outside > TOLERANCE:
             problems.append(f"{node_id} leaves the patch by {outside:.3g} mm^2")
+        in_feed = info["branch"].intersection(shapes["Feed_Region"]).area
+        if in_feed > TOLERANCE:
+            problems.append(f"{node_id} cuts into the feed region by {in_feed:.3g} mm^2")
         min_x = info["branch"].bounds[0]
         if min_x < -TOLERANCE:
             problems.append(f"{node_id} crosses the Y axis (min x = {min_x:.3g})")
