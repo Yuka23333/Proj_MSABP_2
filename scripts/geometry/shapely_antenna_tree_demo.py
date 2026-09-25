@@ -1,16 +1,20 @@
-"""Interactive demo: MSA-BP planar slot antenna with a slider GUI.
+"""Interactive demo: MSA-BP planar slot antenna with a free-form branch tree.
 
-Group dropdown -> variable dropdown -> slider. Exposes every ``# optimizable`` variable
-of shapely_rectangle_test.py plus the extra branches below:
-  - K variables (relative, ratio type) slide over [0.05, 1]; level-1 branch widths
-    (BRANCH_*_K2) may go down to 0
+Variant of shapely_antenna_demo.py whose branches are not pre-embedded: the slot
+branches form a tree of any shape and depth, edited live in the GUI.
+
+Shape: group dropdown -> variable dropdown -> slider, covering the non-branch
+``# optimizable`` variables of shapely_rectangle_test.py
+  - K variables (relative, ratio type) slide over [0.05, 1]
   - absolute variables (mm) slide over [60%, 140%] of their default
 
-Branches: 4 level-1 branches (UP_1/UP_2 off the top slot edge, DOWN_1/DOWN_2 off the
-bottom) grown by a vertical shaper, each carrying 2 level-2 branches (L inward, R
-outward) grown by a horizontal shaper; everything mirrored about the Y axis. Shapers
-only treat the metal patch as a boundary (inward level-2 branches also stop at the Y
-axis), so branches may overlap each other and may cut off copper islands.
+Branch tree: the main slot is the root; every branch grows perpendicular off one
+face of its parent (vertical branches off horizontal ones and vice versa), shaped
+by K1 position / K2 width / K3 length. "Add" creates a child with all K = 0.5,
+"Delete" removes a whole subtree. Branches on the main slot may have zero width.
+Shapers only treat the metal patch as a boundary (branches growing toward -x also
+stop at the Y axis), so branches may overlap each other and may cut off copper
+islands. Everything is mirrored about the Y axis.
 """
 
 import tkinter as tk
@@ -80,70 +84,7 @@ PARAM_GROUPS = {
         ("LOWER_CORNER_EAR_2_K1", "k", 4 / 16.3),
         ("LOWER_CORNER_EAR_2_K2", "k", 1.5 / 6),
     ],
-    "5. Branches (level 1)": [
-        ("BRANCH_UP_1_K", "k", 0.5),
-        ("BRANCH_UP_1_K2", "k", 0.5),
-        ("BRANCH_UP_1_K3", "k", 0.5),
-        ("BRANCH_UP_2_K", "k", 0.9),
-        ("BRANCH_UP_2_K2", "k", 0.5),
-        ("BRANCH_UP_2_K3", "k", 0.5),
-        ("BRANCH_DOWN_1_K", "k", 0.5),
-        ("BRANCH_DOWN_1_K2", "k", 0.5),
-        ("BRANCH_DOWN_1_K3", "k", 0.05),
-        ("BRANCH_DOWN_2_K", "k", 0.9),
-        ("BRANCH_DOWN_2_K2", "k", 0.5),
-        ("BRANCH_DOWN_2_K3", "k", 0.5),
-    ],
 }
-
-# ---------------------------------------------------------------------------
-# Branch tree: 4 level-1 branches, each carrying an inward (L, grows toward -x)
-# and an outward (R, grows toward +x) level-2 branch. Every branch owns three
-# parameters BRANCH_<key>_K / _K2 / _K3.
-# ---------------------------------------------------------------------------
-
-LEVEL1_BRANCHES = ("UP_1", "UP_2", "DOWN_1", "DOWN_2")
-SUB_SIDES = (("L", False), ("R", True))  # (suffix, grows outward)
-BRANCH_CHILDREN = {key: [f"{key}_{side}" for side, _ in SUB_SIDES] for key in LEVEL1_BRANCHES}
-ALL_BRANCHES = [k for key, kids in BRANCH_CHILDREN.items() for k in (key, *kids)]
-SUB_BRANCH_DEFAULTS = (0.5, 0.5, 0.15)
-
-# A branch is "deleted" when all three of its K are 0 (it then has zero area);
-# deleting one also deletes its children. That state sits outside the slider
-# ranges, so the GUI locks a deleted branch's sliders until it is re-created.
-NEW_BRANCH_K = 0.5
-
-
-def branch_params(key):
-    return [f"BRANCH_{key}_{suffix}" for suffix in ("K", "K2", "K3")]
-
-
-def branch_key(param_name):
-    """'BRANCH_UP_1_L_K2' -> 'UP_1_L'; None for non-branch parameters."""
-    if not param_name.startswith("BRANCH_"):
-        return None
-    return param_name[len("BRANCH_"):].rsplit("_", 1)[0]
-
-
-def branch_parent(key):
-    return None if key in BRANCH_CHILDREN else key.rsplit("_", 1)[0]
-
-
-def is_deleted(params, key):
-    return all(params[name] == 0 for name in branch_params(key))
-
-
-def _sub_branch_group(half):
-    return [
-        (name, "k", default)
-        for parent in LEVEL1_BRANCHES if parent.startswith(half)
-        for child in BRANCH_CHILDREN[parent]
-        for name, default in zip(branch_params(child), SUB_BRANCH_DEFAULTS)
-    ]
-
-
-PARAM_GROUPS["6. Sub-branches (up)"] = _sub_branch_group("UP")
-PARAM_GROUPS["7. Sub-branches (down)"] = _sub_branch_group("DOWN")
 
 PARAM_SPECS = {
     name: (kind, default)
@@ -151,15 +92,9 @@ PARAM_SPECS = {
     for name, kind, default in entries
 }
 
-# Level-1 width may collapse to 0; the branch then vanishes but its level-2
-# branches still hang off the zero-width centre line.
-ZERO_WIDTH_PARAMS = {f"BRANCH_{key}_K2" for key in LEVEL1_BRANCHES}
-
 
 def param_range(name):
     kind, default = PARAM_SPECS[name]
-    if name in ZERO_WIDTH_PARAMS:
-        return (0.0, K_RANGE[1])
     if kind == "k":
         return K_RANGE
     return (default * ABS_RANGE_FACTORS[0], default * ABS_RANGE_FACTORS[1])
@@ -167,6 +102,60 @@ def param_range(name):
 
 def default_params():
     return {name: default for name, (_, default) in PARAM_SPECS.items()}
+
+
+# ---------------------------------------------------------------------------
+# Branch tree
+#
+# The main slot is the root. Every branch hangs off one face of its parent and
+# grows perpendicular to it: the slot and horizontal branches offer U/D faces,
+# vertical branches offer L/R faces. Each branch owns [K1, K2, K3]. Node ids are
+# paths of "<side><n>" steps, e.g. "U1/R2/U1", so a subtree is an id prefix.
+# The tree lives in a dict ordered parents-before-children:
+#   {node_id: {"parent": parent_id, "side": "U" | "D" | "L" | "R", "k": [k1, k2, k3]}}
+# ---------------------------------------------------------------------------
+
+ROOT = "SLOT"
+SIDE_DIRECTION = {"U": "up", "D": "down", "L": "left", "R": "right"}
+SIDE_LABEL = {"U": "+ Up", "D": "+ Down", "L": "+ Left (inward)", "R": "+ Right (outward)"}
+NEW_BRANCH_K = (0.5, 0.5, 0.5)
+
+
+def default_tree():
+    """The two branches of the original hand-tuned design."""
+    return {
+        "U1": {"parent": ROOT, "side": "U", "k": [0.5, 0.5, 0.5]},
+        "D1": {"parent": ROOT, "side": "D", "k": [0.5, 0.5, 0.05]},
+    }
+
+
+def child_sides(tree, node_id):
+    if node_id == ROOT or tree[node_id]["side"] in ("L", "R"):
+        return ("U", "D")
+    return ("L", "R")
+
+
+def add_branch(tree, parent, side, k=NEW_BRANCH_K):
+    prefix = "" if parent == ROOT else f"{parent}/"
+    n = 1
+    while f"{prefix}{side}{n}" in tree:
+        n += 1
+    node_id = f"{prefix}{side}{n}"
+    tree[node_id] = {"parent": parent, "side": side, "k": list(k)}
+    return node_id
+
+
+def delete_subtree(tree, node_id):
+    for key in [k for k in tree if k == node_id or k.startswith(f"{node_id}/")]:
+        del tree[key]
+
+
+def k_range(tree, node_id, index):
+    # Only branches on the main slot may shrink to zero width; their children
+    # then hang off the zero-width centre line.
+    if index == 1 and tree[node_id]["parent"] == ROOT:
+        return (0.0, K_RANGE[1])
+    return K_RANGE
 
 
 # ---------------------------------------------------------------------------
@@ -243,46 +232,48 @@ def _branch_info(k, direction, k1_span, midpoint, max_width, half_width, max_len
     }
 
 
-def _build_branch(k1, k2, k3, base_y, x_low, x_high, near_x, slot_max_x, patch, upward):
-    """Level-1 branch: grows vertically off the main slot edge at base_y.
-    Half-width is capped by the room to the nearer of slot_max_x / near_x."""
-    midpoint_x = k1 * (x_high - x_low) + x_low
-    max_width = max(0.0, min(slot_max_x - midpoint_x, midpoint_x - near_x))
+def _build_branch(k1, k2, k3, face, direction, patch):
+    """Grow one branch off a parent face.
+
+    face = {"base": coordinate of the face along the growth axis,
+            "span": (a, b) the K1 midpoint slides from a to b across the growth axis,
+            "cap":  (a, b) face ends the branch width may not cross}.
+    Every "left" branch is also capped at the Y axis: past it a branch only
+    overlaps its own mirror image, so the geometry would stop changing while K3
+    kept moving. That keeps the whole tree in x >= 0 before mirroring."""
+    (a, b), (c0, c1), base = face["span"], face["cap"], face["base"]
+    mid = a + k1 * (b - a)
+    max_width = max(0.0, min(abs(mid - c0), abs(c1 - mid)))
     half_width = k2 * max_width
 
-    direction = "up" if upward else "down"
-    reach = strip_reach(midpoint_x - half_width, midpoint_x + half_width, base_y, patch, direction)
-    max_length = max(0.0, reach)
+    max_length = max(0.0, strip_reach(mid - half_width, mid + half_width, base, patch, direction))
+    if direction == "left":
+        max_length = min(max_length, max(0.0, base))
+
+    vertical = direction in ("up", "down")
+    midpoint = (mid, base) if vertical else (base, mid)
+    k1_span = ((a, base), (b, base)) if vertical else ((base, a), (base, b))
     return _branch_info(
-        (k1, k2, k3), direction, ((x_low, base_y), (x_high, base_y)), (midpoint_x, base_y),
-        max_width, half_width, max_length, k3 * max_length,
+        (k1, k2, k3), direction, k1_span, midpoint, max_width, half_width, max_length, k3 * max_length,
     )
 
 
-def _build_sub_branch(k1, k2, k3, parent, patch, outward):
-    """Level-2 branch: grows horizontally off one side of a level-1 branch.
-    K1 picks the attach height along the parent's length, K2 the thickness (capped so
-    the sub-branch never overhangs either end of the parent), K3 the horizontal reach."""
-    (_, base_y), (_, tip_y) = parent["midpoint"], parent["tip"]
-    y_c = base_y + k1 * (tip_y - base_y)
-    max_width = max(0.0, min(abs(y_c - base_y), abs(tip_y - y_c)))
-    half_width = k2 * max_width
-
-    edge_x = max(x for x, _ in parent["endpoints"]) if outward else min(x for x, _ in parent["endpoints"])
-    direction = "right" if outward else "left"
-    max_length = max(0.0, strip_reach(y_c - half_width, y_c + half_width, edge_x, patch, direction))
-    if not outward:
-        # Past the Y axis an inward branch only overlaps its own mirror image, so the
-        # geometry stops changing; capping here keeps K3 free of a dead plateau.
-        max_length = min(max_length, max(0.0, edge_x))
-    return _branch_info(
-        (k1, k2, k3), direction, ((edge_x, base_y), (edge_x, tip_y)), (edge_x, y_c),
-        max_width, half_width, max_length, k3 * max_length,
-    )
+def _branch_faces(info):
+    """Faces a built branch offers its children. They run from the branch base to its
+    tip, so a child's K1 = 0 sits at the parent's base and K1 = 1 at its tip."""
+    min_x, min_y, max_x, max_y = info["branch"].bounds
+    (mx, my), (tx, ty) = info["midpoint"], info["tip"]
+    if info["direction"] in ("up", "down"):
+        run = (my, ty)
+        return {"L": {"base": min_x, "span": run, "cap": run},
+                "R": {"base": max_x, "span": run, "cap": run}}
+    run = (mx, tx)
+    return {"U": {"base": max_y, "span": run, "cap": run},
+            "D": {"base": min_y, "span": run, "cap": run}}
 
 
-def build(params):
-    """Build every polygon of the antenna from one dict of optimizable parameters."""
+def build(params, tree):
+    """Build every polygon of the antenna from the shape parameters and the branch tree."""
     p = params
 
     slot_len = p["SLOT_MAIN_LENGTH"]
@@ -421,25 +412,20 @@ def build(params):
     # Every shaper uses only the metal patch as its boundary: branches may overlap
     # each other or other slots, and may cut off copper islands.
     Patch = unary_union([Upper_Substrate, Lower_Substrate])
+    # Main-slot faces: the upper one keeps 1 mm from the Y axis (2 mm gap to the
+    # mirror branch); the lower one keeps clear of the CPW feed slot.
     keepout_x = CPW_FEED_SLOT_WIDE_WIDTH + CPW_KEEPOUT_MARGIN
-    level1_anchor = {
-        "UP": dict(base_y=slot_max_y, x_low=2, near_x=1, upward=True),
-        "DOWN": dict(base_y=slot_min_y, x_low=keepout_x, near_x=keepout_x, upward=False),
-    }
-
-    def ks(key):
-        return [p[name] for name in branch_params(key)]
+    x_high = slot_max_x - FIXED_OFFSET
+    faces = {ROOT: {
+        "U": {"base": slot_max_y, "span": (2, x_high), "cap": (1, slot_max_x)},
+        "D": {"base": slot_min_y, "span": (keepout_x, x_high), "cap": (keepout_x, slot_max_x)},
+    }}
 
     branches = {}
-    for key in LEVEL1_BRANCHES:
-        branches[key] = _build_branch(
-            *ks(key), x_high=slot_max_x - FIXED_OFFSET, slot_max_x=slot_max_x, patch=Patch,
-            **level1_anchor[key.split("_")[0]],
-        )
-        for side, outward in SUB_SIDES:
-            branches[f"{key}_{side}"] = _build_sub_branch(
-                *ks(f"{key}_{side}"), parent=branches[key], patch=Patch, outward=outward,
-            )
+    for node_id, node in tree.items():  # parents come before children
+        face = faces[node["parent"]][node["side"]]
+        branches[node_id] = _build_branch(*node["k"], face, SIDE_DIRECTION[node["side"]], Patch)
+        faces[node_id] = _branch_faces(branches[node_id])
 
     branch_polys = [
         g for info in branches.values()
@@ -556,32 +542,35 @@ def k_legend_handles():
 # Fixed character width for labels whose text changes, so the left column never
 # resizes (and drags the plot with it) while a slider moves.
 LABEL_WIDTH = 40
+K_LABEL_WIDTH = 29  # fits "K1 position = 0.500 [0.05, 1]" beside its slider
 
 
 class AntennaDemo:
     def __init__(self, root):
         self.root = root
         self.params = default_params()
+        self.tree_nodes = default_tree()
         self.view_limits = self._compute_view_limits()
 
-        root.title("MSA-BP antenna parameter explorer")
+        root.title("MSA-BP antenna branch-tree explorer")
 
         controls = ttk.Frame(root, padding=10)
         controls.pack(side=tk.LEFT, fill=tk.Y)
 
+        # --- shape parameters: group -> variable -> slider -------------------
         ttk.Label(controls, text="Variable group").pack(anchor="w")
         self.group_var = tk.StringVar(value=next(iter(PARAM_GROUPS)))
         self.group_box = ttk.Combobox(
             controls, textvariable=self.group_var, state="readonly",
             values=list(PARAM_GROUPS), width=28,
         )
-        self.group_box.pack(anchor="w", pady=(0, 12))
+        self.group_box.pack(anchor="w", pady=(0, 8))
         self.group_box.bind("<<ComboboxSelected>>", self.on_group_change)
 
         ttk.Label(controls, text="Variable").pack(anchor="w")
         self.name_var = tk.StringVar()
         self.name_box = ttk.Combobox(controls, textvariable=self.name_var, state="readonly", width=28)
-        self.name_box.pack(anchor="w", pady=(0, 12))
+        self.name_box.pack(anchor="w", pady=(0, 8))
         self.name_box.bind("<<ComboboxSelected>>", self.on_name_change)
 
         self.value_label = ttk.Label(controls, text="", font=("TkDefaultFont", 10, "bold"), width=LABEL_WIDTH)
@@ -595,34 +584,57 @@ class AntennaDemo:
         self.slider.pack(anchor="w")
 
         self.range_label = ttk.Label(controls, text="", width=LABEL_WIDTH)
-        self.range_label.pack(anchor="w", pady=(0, 12))
+        self.range_label.pack(anchor="w", pady=(0, 8))
 
-        self.reset_button = ttk.Button(controls, text="Reset this variable", command=self.reset_current)
-        self.reset_button.pack(anchor="w", fill=tk.X)
-        ttk.Button(controls, text="Reset all", command=self.reset_all).pack(
-            anchor="w", fill=tk.X, pady=(4, 12)
+        ttk.Button(controls, text="Reset this variable", command=self.reset_current).pack(
+            anchor="w", fill=tk.X
+        )
+        ttk.Button(controls, text="Reset all (shape + tree)", command=self.reset_all).pack(
+            anchor="w", fill=tk.X, pady=(4, 8)
         )
 
+        # --- branch tree ----------------------------------------------------
         ttk.Label(controls, text="Branch tree").pack(anchor="w")
-        self.tree = ttk.Treeview(controls, columns=("state",), height=12, selectmode="browse")
+        tree_frame = ttk.Frame(controls)
+        tree_frame.pack(anchor="w", fill=tk.X)
+        self.tree = ttk.Treeview(tree_frame, columns=("grows",), height=8, selectmode="browse")
         self.tree.heading("#0", text="Branch")
-        self.tree.heading("state", text="State")
-        self.tree.column("#0", width=140)
-        self.tree.column("state", width=90)
-        self.tree.tag_configure("deleted", foreground="gray")
-        for key, children in BRANCH_CHILDREN.items():
-            self.tree.insert("", "end", iid=key, text=key, open=True)
-            for child in children:
-                self.tree.insert(key, "end", iid=child, text=child)
-        self.tree.pack(anchor="w", fill=tk.X)
+        self.tree.heading("grows", text="Grows")
+        self.tree.column("#0", width=160)
+        self.tree.column("grows", width=60)
+        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        scrollbar.pack(side=tk.LEFT, fill=tk.Y)
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+        self.tree.bind("<Delete>", lambda _event: self.delete_selected())
 
         tree_buttons = ttk.Frame(controls)
-        tree_buttons.pack(anchor="w", fill=tk.X, pady=(4, 12))
-        self.new_button = ttk.Button(tree_buttons, text="New branch", command=self.new_branch)
-        self.new_button.pack(side=tk.LEFT, expand=True, fill=tk.X)
-        self.delete_button = ttk.Button(tree_buttons, text="Delete subtree", command=self.delete_branch)
-        self.delete_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(4, 0))
+        tree_buttons.pack(anchor="w", fill=tk.X, pady=(4, 0))
+        self.add_buttons = [
+            ttk.Button(tree_buttons, command=lambda i=i: self.add_child(i)) for i in range(2)
+        ]
+        for i, button in enumerate(self.add_buttons):
+            button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(4 if i else 0, 0))
+        self.delete_button = ttk.Button(controls, text="Delete subtree", command=self.delete_selected)
+        self.delete_button.pack(anchor="w", fill=tk.X, pady=(4, 8))
+
+        # --- K sliders of the selected branch -------------------------------
+        self.k_frame = ttk.LabelFrame(controls, text="", padding=4)
+        self.k_frame.pack(anchor="w", fill=tk.X, pady=(0, 8))
+        self.k_vars, self.k_scales, self.k_labels = [], [], []
+        for i in range(3):
+            label = ttk.Label(self.k_frame, text="", width=K_LABEL_WIDTH)
+            label.grid(row=i, column=0, sticky="w")
+            var = tk.DoubleVar()
+            scale_widget = ttk.Scale(
+                self.k_frame, orient=tk.HORIZONTAL, variable=var, length=130,
+                command=lambda _value, i=i: self.on_k_slide(i),
+            )
+            scale_widget.grid(row=i, column=1, sticky="ew", pady=1)
+            self.k_vars.append(var)
+            self.k_scales.append(scale_widget)
+            self.k_labels.append(label)
 
         self.status_label = ttk.Label(controls, text="", justify="left", width=LABEL_WIDTH)
         self.status_label.pack(anchor="w")
@@ -643,6 +655,7 @@ class AntennaDemo:
             message_label.configure(width=32, anchor="e")
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
+        self.refresh_tree(select=ROOT)
         self.on_group_change()
 
     def _compute_view_limits(self):
@@ -650,9 +663,11 @@ class AntennaDemo:
         for name, (kind, default) in PARAM_SPECS.items():
             if kind == "abs":
                 widest[name] = default * ABS_RANGE_FACTORS[1]
-        min_x, min_y, max_x, max_y = build(widest)["Substrate_Full"].bounds
+        min_x, min_y, max_x, max_y = build(widest, {})["Substrate_Full"].bounds
         pad = 0.04 * max(max_x - min_x, max_y - min_y)
         return (min_x - pad, max_x + pad, min_y - pad, max_y + pad)
+
+    # --- shape parameters -------------------------------------------------
 
     @property
     def current_name(self):
@@ -686,85 +701,100 @@ class AntennaDemo:
 
     def reset_all(self):
         self.params = default_params()
+        self.tree_nodes = default_tree()
         self.slider_var.set(self.params[self.current_name])
+        self.refresh_tree(select=ROOT)
         self.redraw()
 
     # --- branch tree ------------------------------------------------------
 
     @property
-    def selected_branch(self):
+    def selected(self):
         selection = self.tree.selection()
-        return selection[0] if selection else None
+        return selection[0] if selection else ROOT
+
+    def refresh_tree(self, select):
+        """Rebuild the Treeview from self.tree_nodes and select one node."""
+        self.tree.delete(*self.tree.get_children(""))
+        self.tree.insert("", "end", iid=ROOT, text="SLOT (main slot)", open=True)
+        for node_id, node in self.tree_nodes.items():  # parents come before children
+            self.tree.insert(
+                node["parent"], "end", iid=node_id, text=node_id.rsplit("/", 1)[-1],
+                values=(SIDE_DIRECTION[node["side"]],), open=True,
+            )
+        self.tree.selection_set(select)
+        self.tree.see(select)
+        self.sync_branch_panel()
 
     def on_tree_select(self, _event=None):
-        key = self.selected_branch
-        if key is None or branch_key(self.current_name) == key:
-            self.sync_tree()
+        self.sync_branch_panel()
+        self.redraw()
+
+    def sync_branch_panel(self):
+        """Point the add/delete buttons and the K sliders at the selected node."""
+        node_id = self.selected
+        for button, side in zip(self.add_buttons, child_sides(self.tree_nodes, node_id)):
+            button.configure(text=SIDE_LABEL[side])
+        is_branch = node_id != ROOT
+        self.delete_button.state(["!disabled"] if is_branch else ["disabled"])
+        self.k_frame.configure(text=f"Selected branch: {node_id if is_branch else '-'}")
+        for i, (var, scale_widget) in enumerate(zip(self.k_vars, self.k_scales)):
+            if is_branch:
+                low, high = k_range(self.tree_nodes, node_id, i)
+                scale_widget.configure(from_=low, to=high)
+                scale_widget.state(["!disabled"])
+                var.set(self.tree_nodes[node_id]["k"][i])
+            else:
+                scale_widget.state(["disabled"])
+            self._update_k_label(i)
+
+    def _update_k_label(self, i):
+        name = ("K1 position", "K2 width", "K3 length")[i]
+        node_id = self.selected
+        if node_id == ROOT:
+            self.k_labels[i].configure(text=name)
             return
-        # Jump the dropdowns to this branch's K1 so its sliders are one click away.
-        name = branch_params(key)[0]
-        group = next(g for g, entries in PARAM_GROUPS.items() if any(n == name for n, _, _ in entries))
-        self.group_var.set(group)
-        self.name_box["values"] = [n for n, _, _ in PARAM_GROUPS[group]]
-        self.name_var.set(name)
-        self.on_name_change()
+        low, high = k_range(self.tree_nodes, node_id, i)
+        value = self.tree_nodes[node_id]["k"][i]
+        self.k_labels[i].configure(text=f"{name} = {value:.3f} [{low:.2g}, {high:.2g}]")
 
-    def delete_branch(self):
-        key = self.selected_branch
-        for k in (key, *BRANCH_CHILDREN.get(key, [])):
-            for name in branch_params(k):
-                self.params[name] = 0.0
-        self.slider_var.set(self.params[self.current_name])
+    def on_k_slide(self, i):
+        node_id = self.selected
+        if node_id == ROOT:
+            return
+        self.tree_nodes[node_id]["k"][i] = self.k_vars[i].get()
+        self._update_k_label(i)
         self.redraw()
 
-    def new_branch(self):
-        for name in branch_params(self.selected_branch):
-            self.params[name] = NEW_BRANCH_K
-        self.slider_var.set(self.params[self.current_name])
+    def add_child(self, index):
+        parent = self.selected
+        side = child_sides(self.tree_nodes, parent)[index]
+        self.refresh_tree(select=add_branch(self.tree_nodes, parent, side))
         self.redraw()
 
-    def sync_tree(self):
-        """Refresh tree labels and enable only the actions that make sense."""
-        for key in ALL_BRANCHES:
-            deleted = is_deleted(self.params, key)
-            self.tree.item(key, values=("deleted" if deleted else "active",),
-                           tags=("deleted",) if deleted else ())
+    def delete_selected(self):
+        node_id = self.selected
+        if node_id == ROOT:
+            return
+        parent = self.tree_nodes[node_id]["parent"]
+        delete_subtree(self.tree_nodes, node_id)
+        self.refresh_tree(select=parent)
+        self.redraw()
 
-        key = self.selected_branch
-        parent = branch_parent(key) if key else None
-        can_create = key is not None and is_deleted(self.params, key) and not (
-            parent and is_deleted(self.params, parent)
-        )
-        can_delete = key is not None and not (
-            is_deleted(self.params, key)
-            and all(is_deleted(self.params, c) for c in BRANCH_CHILDREN.get(key, []))
-        )
-        self.new_button.state(["!disabled"] if can_create else ["disabled"])
-        self.delete_button.state(["!disabled"] if can_delete else ["disabled"])
-
-        current = branch_key(self.current_name)
-        if current and current != key:
-            self.tree.selection_set(current)  # re-enters on_tree_select, which just syncs
-            self.tree.see(current)
-        locked = current is not None and is_deleted(self.params, current)
-        for widget in (self.slider, self.reset_button):
-            widget.state(["disabled"] if locked else ["!disabled"])
+    # --- drawing ----------------------------------------------------------
 
     def redraw(self):
         value = self.params[self.current_name]
         kind = PARAM_SPECS[self.current_name][0]
-        current = branch_key(self.current_name)
-        deleted = current is not None and is_deleted(self.params, current)
         self.value_label.configure(
             text=f"{self.current_name} = {value:.4g}" + ("" if kind == "k" else " mm")
-            + ("  (deleted)" if deleted else "")
         )
-        self.sync_tree()
 
-        shapes = build(self.params)
+        shapes = build(self.params, self.tree_nodes)
         min_x, min_y, max_x, max_y = shapes["Substrate_Full"].bounds
         self.status_label.configure(
             text=(
+                f"Branches   {len(self.tree_nodes)} (x2 mirrored)\n"
                 f"Substrate  {max_x - min_x:.2f} x {max_y - min_y:.2f} mm\n"
                 f"Footprint  {(max_x - min_x) * (max_y - min_y):.1f} mm^2\n"
                 f"Metal      {shapes['metal_area']:.1f} mm^2"
@@ -778,12 +808,15 @@ class AntennaDemo:
         draw_geom(self.ax, shapes["CPW_Feed_Pin"], **FEED_PIN_STYLE)
         for pad in shapes["SMA_Pads"]:
             draw_geom(self.ax, pad, facecolor="none", edgecolor="black", hatch="//")
-        # Annotating all 12 branches is unreadable: show the one being edited,
-        # or the level-1 branches when a non-branch variable is selected.
-        for name in ([current] if current else LEVEL1_BRANCHES):
-            if not is_deleted(self.params, name):
-                annotate_branch(self.ax, shapes["branches"][name])
-        self.ax.legend(handles=k_legend_handles(), loc="upper left", fontsize=7, framealpha=0.9)
+
+        # Only the selected branch is outlined and annotated; the rest stay plain.
+        info = shapes["branches"].get(self.selected)
+        if info is not None:
+            for geom in (info["branch"], info["branch_mirror"]):
+                if geom.area > 0:
+                    draw_geom(self.ax, geom, facecolor="none", edgecolor="tab:orange", lw=2, zorder=5)
+            annotate_branch(self.ax, info)
+            self.ax.legend(handles=k_legend_handles(), loc="upper left", fontsize=7, framealpha=0.9)
 
         self.ax.set_xlim(self.view_limits[0], self.view_limits[1])
         self.ax.set_ylim(self.view_limits[2], self.view_limits[3])
