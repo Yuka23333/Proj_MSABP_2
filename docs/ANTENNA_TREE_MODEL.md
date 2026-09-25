@@ -49,6 +49,21 @@ model.delete_subtree(tree, child)
 
 ## Integration boundary
 
+### K2 saturation
+
+All tree depths use an upper saturation band on branch K2 (not corner K2).
+For `s = 0.10`, raw K2 up to 0.8 stays unchanged, 0.8--0.9 maps linearly
+to 0.8--1, and 0.9--1 maps to exactly 1. K1 and K3 are unchanged. Raw K2
+is retained in the tree and `branches[id]["k"]`; the transformed value is
+available as `branches[id]["effective_k2"]`. The demo displays both.
+
+Use `build(params, tree, snap_fraction=0)` to disable saturation, or supply
+another fraction in `[0, 0.5]`. K2 must be finite and in `[0, 1]`.
+At saturation the width touches the nearer end of the attachment face exactly;
+for a child positioned in the tipward half this is the parent's tip. K1 at
+either endpoint can still give zero width. No growth boundary is relaxed.
+The mapping is continuous but has derivative corners and a flat upper band.
+
 The tree demo now imports this model, and its existing autoplay stays compatible.
 The production `shapely_antenna_model.py`, sampler, polygon export schema and CST
 build routing are not switched to this model yet. No extra geometry rejection,
@@ -60,6 +75,6 @@ quantization or export adapter is introduced by this extraction.
 python -m pytest tests/test_shapely_antenna_tree_model.py -q
 ```
 
-Extraction was additionally checked against the original demo on 100 seeded
+Before adding K2 saturation, extraction was checked against the original demo on 100 seeded
 parameter/tree cases: exact geometry WKB and returned metadata matched. A
 withdrawn-window GUI/autoplay smoke check passed 30 edits. Neither check used CST.

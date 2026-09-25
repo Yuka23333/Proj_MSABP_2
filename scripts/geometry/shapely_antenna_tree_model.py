@@ -2,7 +2,7 @@
 
 Only Shapely is required. Importing or building performs no plotting, GUI setup,
 printing, file writes, CST calls, or solver work. Geometry formulas and branch
-semantics match the G5 implementation at b503ff1.
+semantics derive from the G5 implementation at b503ff1, with optional K2 saturation.
 
 Use default_params(), default_tree(), then build(params, tree). The tree is an
 insertion-ordered dictionary with parents before children; each node records
@@ -11,6 +11,8 @@ The model retains the demo's assumptions rather than adding a new validator.
 """
 
 from __future__ import annotations
+
+from math import isfinite
 
 from shapely.affinity import scale
 from shapely.geometry import LineString, Polygon, box
@@ -45,6 +47,20 @@ CPW_FEED_PIN_CHAMFER_HEIGHT = 0.3
 
 K_RANGE = (0.05, 1.0)
 ABS_RANGE_FACTORS = (0.6, 1.4)
+BRANCH_K2_SNAP_FRACTION = 0.10
+
+
+def relax_upper_k(k, snap_fraction=BRANCH_K2_SNAP_FRACTION):
+    """Identity below 1-2s, slope two up to 1-s, then exactly one."""
+    if not isfinite(k) or not 0.0 <= k <= 1.0:
+        raise ValueError("K must be finite and in [0, 1]")
+    if not isfinite(snap_fraction) or not 0.0 <= snap_fraction <= 0.5:
+        raise ValueError("snap_fraction must be finite and in [0, 0.5]")
+    if snap_fraction == 0.0 or k <= 1.0 - 2.0 * snap_fraction:
+        return float(k)
+    if k >= 1.0 - snap_fraction:
+        return 1.0
+    return 2.0 * k - (1.0 - 2.0 * snap_fraction)
 
 PARAM_GROUPS = {
     "1. Main Slot": [
@@ -190,22 +206,27 @@ def strip_reach(lo, hi, base, shape, direction):
     return base - max(g.bounds[axis + 2] for g in parts)
 
 
-def _branch_info(k, direction, k1_span, midpoint, max_width, half_width, max_length, length):
+def _branch_info(k, direction, k1_span, midpoint, max_width, half_width, max_length, length,
+                 *, width_bounds=None, effective_k2=None):
     """Shared shaper bookkeeping for level-1 and level-2 branches, in (x, y) tuples.
 
-    K1: midpoint slides along k1_span. K2: half-width = K2 * max_width, measured across
+    K1: midpoint slides along k1_span. Half-width = effective K2 * max_width, measured across
     the growth axis. K3: length = K3 * max_length along `direction`, where max_length is
     how far the whole strip can grow before leaving the metal patch."""
     dx, dy = DIRECTIONS[direction]
     px, py = abs(dy), abs(dx)  # unit vector across the growth axis
     mx, my = midpoint
     ends = ((mx - px * half_width, my - py * half_width), (mx + px * half_width, my + py * half_width))
+    if width_bounds is not None:
+        low, high = width_bounds
+        ends = ((low, my), (high, my)) if px else ((mx, low), (mx, high))
     tip = (mx + dx * length, my + dy * length)
     xs = [ends[0][0], ends[1][0], ends[0][0] + dx * length, ends[1][0] + dx * length]
     ys = [ends[0][1], ends[1][1], ends[0][1] + dy * length, ends[1][1] + dy * length]
     branch = box(min(xs), min(ys), max(xs), max(ys))
     return {
         "k": k,
+        "effective_k2": k[1] if effective_k2 is None else effective_k2,
         "direction": direction,
         "k1_span": k1_span,
         "midpoint": midpoint,
@@ -219,7 +240,8 @@ def _branch_info(k, direction, k1_span, midpoint, max_width, half_width, max_len
     }
 
 
-def _build_branch(k1, k2, k3, face, direction, patch):
+def _build_branch(k1, k2, k3, face, direction, patch,
+                  *, snap_fraction=BRANCH_K2_SNAP_FRACTION):
     """Grow one branch off a parent face.
 
     face = {"base": coordinate of the face along the growth axis,
@@ -231,9 +253,21 @@ def _build_branch(k1, k2, k3, face, direction, patch):
     (a, b), (c0, c1), base = face["span"], face["cap"], face["base"]
     mid = a + k1 * (b - a)
     max_width = max(0.0, min(abs(mid - c0), abs(c1 - mid)))
-    half_width = k2 * max_width
+    effective_k2 = relax_upper_k(k2, snap_fraction)
+    half_width = effective_k2 * max_width
+    low, high = mid - half_width, mid + half_width
+    if effective_k2 == 1.0:
+        cap_low, cap_high = sorted((c0, c1))
+        if abs(mid - cap_low) <= abs(cap_high - mid):
+            low = cap_low
+        if abs(cap_high - mid) <= abs(mid - cap_low):
+            high = cap_high
+        # Reversed spans can round their midpoint toward one end. At the
+        # exact halfway parameter both caps are selected, not just the nearer.
+        if k1 == 0.5 and sorted((a, b)) == [cap_low, cap_high]:
+            low, high = cap_low, cap_high
 
-    max_length = max(0.0, strip_reach(mid - half_width, mid + half_width, base, patch, direction))
+    max_length = max(0.0, strip_reach(low, high, base, patch, direction))
     if direction == "left":
         max_length = min(max_length, max(0.0, base))
 
@@ -242,6 +276,7 @@ def _build_branch(k1, k2, k3, face, direction, patch):
     k1_span = ((a, base), (b, base)) if vertical else ((base, a), (base, b))
     return _branch_info(
         (k1, k2, k3), direction, k1_span, midpoint, max_width, half_width, max_length, k3 * max_length,
+        width_bounds=(low, high), effective_k2=effective_k2,
     )
 
 
@@ -259,8 +294,9 @@ def _branch_faces(info):
             "D": {"base": min_y, "span": run, "cap": run}}
 
 
-def build(params, tree):
+def build(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION):
     """Build every polygon of the antenna from the shape parameters and the branch tree."""
+    relax_upper_k(0.0, snap_fraction)  # Validate even for an empty tree.
     p = params
 
     slot_len = p["SLOT_MAIN_LENGTH"]
@@ -411,7 +447,10 @@ def build(params, tree):
     branches = {}
     for node_id, node in tree.items():  # parents come before children
         face = faces[node["parent"]][node["side"]]
-        branches[node_id] = _build_branch(*node["k"], face, SIDE_DIRECTION[node["side"]], Patch)
+        branches[node_id] = _build_branch(
+            *node["k"], face, SIDE_DIRECTION[node["side"]], Patch,
+            snap_fraction=snap_fraction,
+        )
         faces[node_id] = _branch_faces(branches[node_id])
 
     branch_polys = [

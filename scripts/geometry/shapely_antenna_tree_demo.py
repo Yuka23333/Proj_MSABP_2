@@ -44,6 +44,7 @@ if __package__:
         delete_subtree,
         k_range,
         param_range,
+        relax_upper_k,
     )
 else:
     from shapely_antenna_tree_model import (
@@ -63,6 +64,7 @@ else:
         delete_subtree,
         k_range,
         param_range,
+        relax_upper_k,
     )
 
 SIDE_LABEL = {"U": "+ Up", "D": "+ Down", "L": "+ Left (inward)", "R": "+ Right (outward)"}
@@ -128,7 +130,7 @@ def annotate_branch(ax, info, fontsize=8):
             [my - py * w + dy * off, my + py * w + dy * off], ls=":", lw=0.9, color=c2, alpha=0.9)
     for ex, ey in info["endpoints"]:
         ax.plot(ex, ey, m2, color=c2, ms=4.5, mec="white", zorder=6)
-    ax.annotate(f"K2={k2:.2f}", info["endpoints"][1], xytext=(16 * px + 8 * dx, 16 * py + 8 * dy),
+    ax.annotate(f"K2={k2:.2f} -> {info['effective_k2']:.2f}", info["endpoints"][1], xytext=(16 * px + 8 * dx, 16 * py + 8 * dy),
                 ha="left" if px else "center", color=c2, **text_kw)
 
     m3, c3, _ = K_STYLE["K3"]
@@ -365,7 +367,8 @@ class AntennaDemo:
             return
         low, high = k_range(self.tree_nodes, node_id, i)
         value = self.tree_nodes[node_id]["k"][i]
-        self.k_labels[i].configure(text=f"{name} = {value:.3f} [{low:.2g}, {high:.2g}]")
+        effective = f" -> effective {relax_upper_k(value):.3f}" if i == 1 else ""
+        self.k_labels[i].configure(text=f"{name} = {value:.3f}{effective} [{low:.2g}, {high:.2g}]")
 
     def on_k_slide(self, i):
         node_id = self.selected

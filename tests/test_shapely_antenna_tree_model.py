@@ -8,6 +8,7 @@ import sys
 
 import pytest
 from shapely.affinity import scale
+from shapely.geometry import box
 
 from scripts.geometry import shapely_antenna_tree_model as model
 
@@ -91,3 +92,54 @@ def test_known_default_extent():
     bounds = geometry["Substrate_Full"].bounds
     assert bounds[2] - bounds[0] == pytest.approx(67)
     assert bounds[3] - bounds[1] == pytest.approx(40.6)
+
+
+@pytest.mark.parametrize("raw,effective", [(0, 0), (.5, .5), (.8, .8), (.85, .9), (.9, 1), (1, 1)])
+def test_k2_relaxation(raw, effective):
+    assert model.relax_upper_k(raw) == pytest.approx(effective)
+    assert model.relax_upper_k(raw, 0) == raw
+
+
+@pytest.mark.parametrize("raw,s", [(float('nan'), .1), (-.1, .1), (1.1, .1),
+                                  (.5, -.1), (.5, .6), (.5, float('inf'))])
+def test_invalid_relaxation(raw, s):
+    with pytest.raises(ValueError):
+        model.relax_upper_k(raw, s)
+
+
+@pytest.mark.parametrize("direction", ['up', 'down', 'left', 'right'])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("k1", [0, .25, .5, .75, 1])
+def test_snapped_face_bounds_in_all_directions(direction, reverse, k1):
+    span = (2.3, 12.7) if not reverse else (12.7, 2.3)
+    face = {'span': span, 'cap': span, 'base': 15}
+    info = model._build_branch(k1, .95, .5, face, direction, box(0, 0, 30, 30))
+    axis = 0 if direction in ('up', 'down') else 1
+    lo, hi = [p[axis] for p in info['endpoints']]
+    assert 2.3 - 1e-12 <= lo <= hi <= 12.7 + 1e-12
+    if k1 < .5:
+        assert (hi if reverse else lo) == span[0]
+    elif k1 > .5:
+        assert (lo if reverse else hi) == span[1]
+    else:
+        assert lo == 2.3
+        assert hi == 12.7
+    assert info['effective_k2'] == 1
+    assert info['k'][1] == .95
+
+
+def test_saturation_applies_recursively_without_mutating_tree():
+    tree = model.default_tree()
+    parent = 'U1'
+    for side in ('R', 'D', 'L', 'U'):
+        parent = model.add_branch(tree, parent, side, k=(.75, .95, .5))
+    before = deepcopy(tree)
+    saturated = model.build(model.default_params(), tree)
+    linear = model.build(model.default_params(), tree, snap_fraction=0)
+    assert tree == before
+    for node in tree:
+        assert saturated['branches'][node]['effective_k2'] == model.relax_upper_k(tree[node]['k'][1])
+        assert linear['branches'][node]['effective_k2'] == tree[node]['k'][1]
+    slot = saturated['Slot']
+    assert slot.is_valid
+    assert slot.symmetric_difference(scale(slot, xfact=-1, origin=(0, 0))).area < 1e-8
