@@ -282,6 +282,9 @@ def _build_branch(k1, k2, k3, face, direction, patch,
 
     max_length = max(0.0, strip_reach(low, high, base, patch, direction) - tip_clearance)
     if direction == "left":
+        # The full mirrored domain above supplies physical boundaries only.
+        # Cap at the symmetry seam AFTER clearance; never subtract clearance
+        # from min(physical_reach, base), which would leave an artificial gap.
         max_length = min(max_length, max(0.0, base))
 
     vertical = direction in ("up", "down")

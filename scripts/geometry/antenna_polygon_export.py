@@ -20,14 +20,19 @@ by the producer and intentionally omits the duplicate closing point.  The CST
 Polygon writer closes the last vertex back to the first.  This reader checks
 only the transport schema and numeric types; it deliberately does not repeat
 the producer's geometric validity, intersection, winding, or quantization
-checks.
+checks. An optional ``conductor_components`` array stores the final copper as
+``{"exterior": [[x,y], ...], "holes": [[[x,y], ...], ...]}`` records, feed-connected
+first. Optional ``source_holes`` maps source names to interior-ring arrays. Those
+exports must include component records, so an internal island is not lost when
+the three original source exteriors alone cannot describe the full geometry.
+The CST builder validates the extended records against the source Boolean result.
 """
 
 from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -45,12 +50,22 @@ Point2D = tuple[float, float]
 
 
 @dataclass(frozen=True)
+class ConductorComponentCurves:
+    """One final copper region; first record is the feed-connected main body."""
+
+    exterior: tuple[Point2D, ...]
+    holes: tuple[tuple[Point2D, ...], ...] = ()
+
+
+@dataclass(frozen=True)
 class AntennaPolygonExport:
     """Three CST source curves plus the coordinate metadata from one export."""
 
     source_path: Path
     quantize_step_mm: float
     vertices: Mapping[str, tuple[Point2D, ...]]
+    conductor_components: tuple[ConductorComponentCurves, ...] = ()
+    source_holes: Mapping[str, tuple[tuple[Point2D, ...], ...]] = field(default_factory=dict)
 
     def points(self, name: str) -> list[Point2D]:
         """Return a mutable copy while preserving the JSON point order exactly."""
@@ -116,16 +131,10 @@ def _points(value: Any, label: str) -> tuple[Point2D, ...]:
     return tuple(result)
 
 
-def load_antenna_polygon_export(
-    path: str | Path = DEFAULT_EXPORT_PATH,
-) -> AntennaPolygonExport:
-    """Load one exported JSON without performing geometry validation."""
-
-    source = Path(path).expanduser().resolve()
-    payload = _mapping(
-        json.loads(source.read_text(encoding="utf-8")),
-        "polygon export",
-    )
+def polygon_export_from_payload(payload, source_path="<in-memory>") -> AntennaPolygonExport:
+    """Decode the old three-curve format or its optional component-curve extension."""
+    source = Path(source_path)
+    payload = _mapping(payload, "polygon export")
     meta = _mapping(payload.get("meta"), "polygon export.meta")
     quantize_step = meta.get("quantize_step")
     if isinstance(quantize_step, bool):
@@ -147,8 +156,40 @@ def load_antenna_polygon_export(
         name: _points(raw_vertices[name], f"polygon export.vertices.{name}")
         for name in REQUIRED_VERTEX_KEYS
     }
+    raw_components = payload.get("conductor_components", [])
+    if not isinstance(raw_components, list):
+        raise ValueError("conductor_components must be an array")
+    components = []
+    for index, raw in enumerate(raw_components):
+        raw = _mapping(raw, f"conductor_components[{index}]")
+        holes = raw.get("holes", [])
+        if not isinstance(holes, list):
+            raise ValueError("conductor component holes must be an array")
+        components.append(ConductorComponentCurves(
+            _points(raw.get("exterior"), f"conductor_components[{index}].exterior"),
+            tuple(_points(ring, f"conductor_components[{index}].holes[{j}]")
+                  for j, ring in enumerate(holes)),
+        ))
+    raw_holes = _mapping(payload.get("source_holes", {}), "source_holes")
+    source_holes = {}
+    for name, rings in raw_holes.items():
+        if name not in REQUIRED_VERTEX_KEYS or not isinstance(rings, list):
+            raise ValueError("source_holes must map source names to arrays of hole curves")
+        source_holes[name] = tuple(_points(ring, f"source_holes.{name}") for ring in rings)
+    if any(source_holes.values()) and not components:
+        raise ValueError("Exports with source holes require conductor_components")
     return AntennaPolygonExport(
         source_path=source,
         quantize_step_mm=quantize_step_mm,
         vertices=vertices,
+        conductor_components=tuple(components),
+        source_holes=source_holes,
     )
+
+
+def load_antenna_polygon_export(
+    path: str | Path = DEFAULT_EXPORT_PATH,
+) -> AntennaPolygonExport:
+    """Load curve data, checking schema/numeric types without geometric checks."""
+    source = Path(path).expanduser().resolve()
+    return polygon_export_from_payload(json.loads(source.read_text(encoding="utf-8")), source)

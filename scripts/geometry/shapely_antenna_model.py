@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from shapely.affinity import scale
-from shapely.geometry import LinearRing, LineString, Point, Polygon, box
+from shapely.geometry import LinearRing, LineString, Polygon, box
 from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 
@@ -442,8 +442,13 @@ def polygon_export_payload(
     parameters: ShapelyAntennaParameters = DEFAULT_PARAMETERS,
     *,
     quantize_step_mm: float = QUANTIZE_STEP_MM,
+    include_conductor_components: bool = False,
 ) -> dict[str, Any]:
-    """Return the same three-curve JSON payload as the exploratory script."""
+    """Return source curves, optionally preserving disconnected copper and holes.
+
+    Component curves are computed after source quantization; intersections are
+    not rounded a second time. The default payload stays backward-compatible.
+    """
 
     geometry = build_antenna_geometry(parameters)
     polygons = {
@@ -481,7 +486,7 @@ def polygon_export_payload(
             "ring_is_simple": bool(ring.is_simple),
             "polygon_is_valid": bool(polygon.is_valid),
         }
-    return {
+    payload = {
         "meta": {
             "quantize_step": quantize_step_mm,
             "global_min_y_before_shift": global_min_y,
@@ -490,6 +495,26 @@ def polygon_export_payload(
         },
         "vertices": shifted_vertices,
     }
+    if include_conductor_components:
+        from scripts.geometry.conductor_components import extract_conductor_components
+
+        source_holes = {
+            name: [[
+                (
+                    round(x / quantize_step_mm) * quantize_step_mm,
+                    round(round(y / quantize_step_mm) * quantize_step_mm - global_min_y, 2),
+                )
+                for x, y in ring.coords[:-1]
+            ] for ring in polygon.interiors]
+            for name, polygon in polygons.items() if polygon.interiors
+        }
+        components = extract_conductor_components(shifted_vertices, source_holes)
+        # Preserve the existing single-body CST boolean route by default.
+        if len(components) > 1 or source_holes:
+            payload["conductor_components"] = components
+            if source_holes:
+                payload["source_holes"] = source_holes
+    return payload
 
 
 def write_polygon_export(
