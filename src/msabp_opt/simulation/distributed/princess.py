@@ -738,6 +738,7 @@ class PrincessCoordinator:
                 "farfield_source",
             },
             "propagation_s21": {"s21"},
+            "antenna_tree": {"s11", "rad_eff", "tot_eff", "farfield_source"},
         }
         if simulation_mode not in required_by_mode:
             raise ApiError(

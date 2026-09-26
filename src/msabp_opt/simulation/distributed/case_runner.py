@@ -40,6 +40,7 @@ PROPAGATION_SIMULATION_MODE = "propagation_s21"
 SUPPORTED_SIMULATION_MODES = (
     DEFAULT_SIMULATION_MODE,
     PROPAGATION_SIMULATION_MODE,
+    "antenna_tree",
 )
 S11_FILENAME = "S11.csv"
 RAD_EFF_FILENAME = cst_run_and_export_s11.RAD_EFF_FILENAME
@@ -185,6 +186,17 @@ def run_csv_row(
     simulation_mode = str(
         row.get("simulation_mode", DEFAULT_SIMULATION_MODE)
     ).strip() or DEFAULT_SIMULATION_MODE
+    if simulation_mode == "antenna_tree":
+        from . import case_runner_tree
+
+        return case_runner_tree.run_csv_row(
+            row, project_path=project_path, output_root=output_root, project=project,
+            case_id=case_id, id_width=id_width, coordinate_quantum_mm=coordinate_quantum_mm,
+            allow_disconnected_conductor=allow_disconnected_conductor,
+            command_timeout=command_timeout, overwrite=overwrite,
+            save_project_after_case=save_project_after_case, dry_run=dry_run,
+            stage_callback=stage_callback, local_artifact_root=local_artifact_root,
+        )
     if simulation_mode != DEFAULT_SIMULATION_MODE:
         from . import propagation_case_runner
 

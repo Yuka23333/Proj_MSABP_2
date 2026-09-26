@@ -196,6 +196,21 @@ def test_inward_lower_branch_stops_clearance_short_of_feed():
     assert flush["branches"][child]["branch"].intersection(flush["Feed_Region"]).area == 0
 
 
+@pytest.mark.parametrize("parent_k2", [0.0, 0.3])
+def test_symmetry_axis_has_no_tip_clearance(parent_k2):
+    """Mirrored inward children meet exactly, including zero-width parents."""
+    tree = model.default_tree()
+    tree["U1"]["k"] = [.15, parent_k2, .8]
+    child = model.add_branch(tree, "U1", "L", k=(.7, .3, 1.0))
+    geometry = model.build(model.default_params(), tree)
+    info = geometry["branches"][child]
+    assert model.BRANCH_TIP_CLEARANCE > 0
+    assert info["length"] > 0
+    assert info["tip"][0] == 0.0
+    assert info["branch"].bounds[0] == 0.0
+    assert info["branch"].intersection(info["branch_mirror"]).length > 0
+
+
 def test_feed_region_is_an_obstacle_at_every_depth():
     import random
 
