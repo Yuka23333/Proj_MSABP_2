@@ -6,12 +6,14 @@ Only our own contiguous history suffix may be removed. No fallback solid deletio
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
 from pathlib import Path
 
 from shapely.geometry import Polygon, box
 from shapely.geometry.polygon import orient
+from shapely.affinity import translate
 from shapely.ops import unary_union
 
 from scripts.geometry import shapely_antenna_tree_model as model
@@ -77,7 +79,9 @@ def normalize_request(raw):
             progress = True
         if not progress:
             raise ValueError("Missing parent or cyclic branch tree")
-    options = {'snap_fraction': model.BRANCH_K2_SNAP_FRACTION, 'tip_clearance': model.BRANCH_TIP_CLEARANCE}
+    options = {'snap_fraction': model.BRANCH_K2_SNAP_FRACTION, 'tip_clearance': model.BRANCH_TIP_CLEARANCE,
+               'manufacturing_mode': 'repair', 'min_feature_mm': model.manufacturing.MIN_FEATURE_MM,
+               'feature_snap_mm': model.manufacturing.SNAP_THRESHOLD_MM}
     supplied = raw.get('build_options', {})
     if not isinstance(supplied, dict) or set(supplied) - set(options):
         raise ValueError("Unknown build option")
@@ -101,7 +105,7 @@ def prepare_geometry(raw, quantum=.01):
     if not math.isfinite(quantum) or quantum <= 0:
         raise ValueError("Quantum must be positive")
     request = normalize_request(raw)
-    shapes = model.build(request['params'], request['tree'], **request['build_options'])
+    shapes = model.build(request['params'], request['tree'], coordinate_quantum_mm=quantum, **request['build_options'])
     offset = -shapes['Substrate_Full'].bounds[1]
 
     def quantize(shape):
@@ -115,8 +119,15 @@ def prepare_geometry(raw, quantum=.01):
             result.append(q)
         return unary_union(result)
 
-    sources = {n: quantize(shapes[n]) for n in ('Patch', 'Slot', 'CPW_Feed_Pin', 'Substrate_Full')}
-    copper = sources['Patch'].difference(sources['Slot']).union(sources['CPW_Feed_Pin'])
+    source_names = ('Patch', 'Slot', 'CPW_Feed_Pin', 'Substrate_Full')
+    historical = request['build_options']['manufacturing_mode'] == 'off'
+    sources = {n: (quantize(shapes[n]) if historical or n in ('CPW_Feed_Pin','Substrate_Full')
+                   else translate(shapes[n],yoff=offset)) for n in source_names}
+    # Authoritative final geometry is shared with the demo. Do not reconstruct
+    # copper from the raw construction guides and thereby undo manufacturing.
+    copper = (sources['Patch'].difference(sources['Slot']).union(sources['CPW_Feed_Pin'])
+              if historical
+              else translate(shapes['Copper'],yoff=offset))
     if not copper.is_valid or copper.is_empty:
         raise ValueError("Invalid final copper")
     bodies = sorted(polygons(copper), key=lambda p: (-p.intersection(sources['CPW_Feed_Pin']).area, *p.bounds))
@@ -133,6 +144,10 @@ def prepare_geometry(raw, quantum=.01):
             'substrate_bounds': [x0, y0, x1, y1], 'copper': [curves(p) for p in bodies],
             'reflector': curves(reflector), 'copper_area_mm2': copper.area,
             'copper_holes': sum(len(p.interiors) for p in bodies),
+            'copper_raw': [curves(translate(p,yoff=offset)) for p in polygons(shapes['Copper_Raw'])],
+            'manufacturing': shapes['Manufacturing'],
+            'manufactured_copper_sha256': hashlib.sha256(copper.simplify(0).normalize().wkb).hexdigest(),
+            'source_curves_role': 'historical_quantized' if historical else 'raw_construction_guides_not_CST_inputs',
             'source_curves': {n: [curves(p) for p in polygons(g)] for n, g in sources.items()}}
 
 

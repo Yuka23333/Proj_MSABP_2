@@ -224,6 +224,9 @@ def test_feed_region_is_an_obstacle_at_every_depth():
             tree[node]["k"] = [rng.uniform(*model.k_range(tree, node, i)) for i in range(3)]
             tree[node]["k"][2] = rng.choice([1.0, tree[node]["k"][2]])
         for clearance in (0, model.BRANCH_TIP_CLEARANCE):
-            geometry = model.build(model.default_params(), tree, tip_clearance=clearance)
+            # This test concerns raw shaper obstacles, including deliberately
+            # zero tip clearance; fabrication rejection is tested separately.
+            geometry = model.build(model.default_params(), tree, tip_clearance=clearance,
+                                   manufacturing_mode='off')
             for node_id, info in geometry["branches"].items():
                 assert info["branch"].intersection(geometry["Feed_Region"]).area < 1e-9, node_id

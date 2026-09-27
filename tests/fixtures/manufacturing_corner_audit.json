@@ -1,0 +1,1150 @@
+{
+  "source": "EuCAP 300-point audit, seed 2027, zero-based sample IDs",
+  "input_sha256": "f3f648042d67d7c6ba1102bd389e7f754ee755d91602bfb5e5e55bffc2ccb7f6",
+  "baseline_source_sha256": {
+    "shapely_antenna_tree_model.py": "8e3c3c4667e213de01a6cd99d9699bf41c30389c0ddd1a67f05c4f8f49d3c3dd",
+    "manufacturing.py": "85d09a7ea3c4c232391812325b80e7e319df65d1f020f0f738491cf05bdef90c"
+  },
+  "cases": [
+    {
+      "sample": 0,
+      "expected": "passed",
+      "params": {
+        "SLOT_MAIN_LENGTH": 47.78485788030113,
+        "SLOT_MAIN_HEIGHT": 1.954353020354034,
+        "PATCH_BRICK_1_SIDE_MARGIN": 5.499024738730364,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.5989088245966365,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 14.846236900369274,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 2.0821713373701316,
+        "PATCH_BRICK_4_MARGIN": 3.838230789760396,
+        "UPPER_CORNER_NOTCH_1_K1": 0.6402014560340897,
+        "UPPER_CORNER_NOTCH_1_K2": 0.5828572258656253,
+        "UPPER_CORNER_EAR_1_K1": 0.1353553623321328,
+        "UPPER_CORNER_EAR_1_K2": 0.05849364987745459,
+        "LOWER_CORNER_NOTCH_1_K1": 0.41316644981662676,
+        "LOWER_CORNER_NOTCH_1_K2": 0.902111357424208,
+        "LOWER_CORNER_EAR_1_K1": 0.07748185674909223,
+        "LOWER_CORNER_EAR_1_K2": 0.9634245995916803,
+        "LOWER_CORNER_EAR_2_K1": 0.7579453733240222,
+        "LOWER_CORNER_EAR_2_K2": 0.737376034679044
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.22452368372103682,
+            0.5871393275943448,
+            0.7305397807412302
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.913624169088808,
+            0.041183294396942904,
+            0.14675937518961912
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.9713194696407905,
+            0.8062933435089494,
+            0.39091140988899714
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.17824458546467103,
+            0.6645608670524354,
+            0.9259498770196282
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.248488978651684,
+            0.7270753168965554,
+            0.22517159276206872
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.7375348499744024,
+            0.1827601770041022,
+            0.9917982166815045
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.09640803517076363,
+            0.38965771428709484,
+            0.6591049218070422
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 8,
+      "expected": "passed",
+      "params": {
+        "SLOT_MAIN_LENGTH": 50.96905275940664,
+        "SLOT_MAIN_HEIGHT": 2.0978884347291995,
+        "PATCH_BRICK_1_SIDE_MARGIN": 6.449264673569221,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.4851021642207614,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 14.3190039846457,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 1.939214529861988,
+        "PATCH_BRICK_4_MARGIN": 3.7941917337755102,
+        "UPPER_CORNER_NOTCH_1_K1": 0.618616303327544,
+        "UPPER_CORNER_NOTCH_1_K2": 0.6523369370082455,
+        "UPPER_CORNER_EAR_1_K1": 0.9437274101899967,
+        "UPPER_CORNER_EAR_1_K2": 0.6886020954750154,
+        "LOWER_CORNER_NOTCH_1_K1": 0.7559700856108718,
+        "LOWER_CORNER_NOTCH_1_K2": 0.869713636704896,
+        "LOWER_CORNER_EAR_1_K1": 0.5009647181954605,
+        "LOWER_CORNER_EAR_1_K2": 0.8350487141326609,
+        "LOWER_CORNER_EAR_2_K1": 0.4607540547566476,
+        "LOWER_CORNER_EAR_2_K2": 0.42872346699207636
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.4055754713065945,
+            0.6572557584132578,
+            0.7056696203582157
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.810186148172716,
+            0.8519299710510554,
+            0.8286993056157045
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.8387566709923886,
+            0.828131150311801,
+            0.40361441332931064
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.8667123764492073,
+            0.9088833102356424,
+            0.47237974689607976
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.6360667240810473,
+            0.8294122051091706,
+            0.18826241456176684
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.3091145215460106,
+            0.8531998188267189,
+            0.45880145965181585
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.9130586878993031,
+            0.7795928773924454,
+            0.6950980959684959
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 22,
+      "expected": "passed",
+      "params": {
+        "SLOT_MAIN_LENGTH": 56.37716140609935,
+        "SLOT_MAIN_HEIGHT": 1.9739569290182515,
+        "PATCH_BRICK_1_SIDE_MARGIN": 6.513004870876463,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.369126140132787,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 14.654080420271447,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 1.8620593102112297,
+        "PATCH_BRICK_4_MARGIN": 3.951816403564872,
+        "UPPER_CORNER_NOTCH_1_K1": 0.3137455969923915,
+        "UPPER_CORNER_NOTCH_1_K2": 0.23455360104569012,
+        "UPPER_CORNER_EAR_1_K1": 0.9501524317554616,
+        "UPPER_CORNER_EAR_1_K2": 0.37207230010948744,
+        "LOWER_CORNER_NOTCH_1_K1": 0.08430368318241789,
+        "LOWER_CORNER_NOTCH_1_K2": 0.3462085453297991,
+        "LOWER_CORNER_EAR_1_K1": 0.9015750074210147,
+        "LOWER_CORNER_EAR_1_K2": 0.5231128727013756,
+        "LOWER_CORNER_EAR_2_K1": 0.9440650075703657,
+        "LOWER_CORNER_EAR_2_K2": 0.49667997828656263
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.9968682302765554,
+            0.026586248215617947,
+            0.7728968732418021
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.7882227386154048,
+            0.16503091629454836,
+            0.47463222455206994
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.5589174815829705,
+            0.5714225866988263,
+            0.28689355385889154
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.42573273159755276,
+            0.4252976143230836,
+            0.7602555306902907
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.6210554674465214,
+            0.117357739921372,
+            0.8023622134369769
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.761384884205777,
+            0.7969348563495691,
+            0.23652429677303394
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.5323127343418598,
+            0.27387271296654353,
+            0.5710497825512976
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 37,
+      "expected": "passed",
+      "params": {
+        "SLOT_MAIN_LENGTH": 55.35950358192334,
+        "SLOT_MAIN_HEIGHT": 2.125875918857833,
+        "PATCH_BRICK_1_SIDE_MARGIN": 6.247701358917266,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.8331841739063655,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 16.362806534030717,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 2.093921475664747,
+        "PATCH_BRICK_4_MARGIN": 3.709898120800673,
+        "UPPER_CORNER_NOTCH_1_K1": 0.302687490183921,
+        "UPPER_CORNER_NOTCH_1_K2": 0.32873196955505496,
+        "UPPER_CORNER_EAR_1_K1": 0.759755756421201,
+        "UPPER_CORNER_EAR_1_K2": 0.7778118099800134,
+        "LOWER_CORNER_NOTCH_1_K1": 0.2656634256539521,
+        "LOWER_CORNER_NOTCH_1_K2": 0.8245044761087917,
+        "LOWER_CORNER_EAR_1_K1": 0.7625238154923253,
+        "LOWER_CORNER_EAR_1_K2": 0.2885703534000996,
+        "LOWER_CORNER_EAR_2_K1": 0.38139769210479346,
+        "LOWER_CORNER_EAR_2_K2": 0.6122852739853563
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.3449273599316243,
+            0.30191049504915957,
+            0.546598403164459
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.7935083564592725,
+            0.5078688079105428,
+            0.5320820693196977
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.16357101733498705,
+            0.616862254686634,
+            0.776595164704939
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.7099876717985776,
+            0.5472377471335683,
+            0.8076297305377486
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.41361643361490075,
+            0.0031765538783908864,
+            0.9765528963876828
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.6514139637015958,
+            0.4876824399747586,
+            0.09596018852702065
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.2666330349508985,
+            0.33587921515289687,
+            0.5674530404429708
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 39,
+      "expected": "protected",
+      "params": {
+        "SLOT_MAIN_LENGTH": 48.00490495003771,
+        "SLOT_MAIN_HEIGHT": 2.1341974025404364,
+        "PATCH_BRICK_1_SIDE_MARGIN": 6.2715007238327285,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.3730109488634654,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 15.604943807354745,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 2.0222596691693493,
+        "PATCH_BRICK_4_MARGIN": 3.721394522480845,
+        "UPPER_CORNER_NOTCH_1_K1": 0.9546725698428793,
+        "UPPER_CORNER_NOTCH_1_K2": 0.9437492571111139,
+        "UPPER_CORNER_EAR_1_K1": 0.5695180055598962,
+        "UPPER_CORNER_EAR_1_K2": 0.19905088923492026,
+        "LOWER_CORNER_NOTCH_1_K1": 0.412089133770434,
+        "LOWER_CORNER_NOTCH_1_K2": 0.36497545140089754,
+        "LOWER_CORNER_EAR_1_K1": 0.35536070866794156,
+        "LOWER_CORNER_EAR_1_K2": 0.7905423408667108,
+        "LOWER_CORNER_EAR_2_K1": 0.704631353976936,
+        "LOWER_CORNER_EAR_2_K2": 0.11791715164819966
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.15487054024799302,
+            0.9917769097504792,
+            0.06443517848222055
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.6973506928807056,
+            0.09140410608353189,
+            0.8729140585053706
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.37386565696619206,
+            0.6934726814118551,
+            0.8949213488587833
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.7281538063189827,
+            0.8768128901838262,
+            0.9178840443833642
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.9741476282831922,
+            0.4698746477945981,
+            0.9995525606104645
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.8313470406925468,
+            0.5017737462587303,
+            0.2291877056738481
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.36005909522628443,
+            0.07154078570191831,
+            0.15246280860982775
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 122,
+      "expected": "passed",
+      "params": {
+        "SLOT_MAIN_LENGTH": 56.057973424526594,
+        "SLOT_MAIN_HEIGHT": 2.082520991133296,
+        "PATCH_BRICK_1_SIDE_MARGIN": 5.7324435348749,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.702843278749857,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 14.30540219072586,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 2.042948604736504,
+        "PATCH_BRICK_4_MARGIN": 4.2022426469536445,
+        "UPPER_CORNER_NOTCH_1_K1": 0.7886031395831812,
+        "UPPER_CORNER_NOTCH_1_K2": 0.862363453630337,
+        "UPPER_CORNER_EAR_1_K1": 0.6468322547153247,
+        "UPPER_CORNER_EAR_1_K2": 0.6977736755527882,
+        "LOWER_CORNER_NOTCH_1_K1": 0.9507838835517203,
+        "LOWER_CORNER_NOTCH_1_K2": 0.6891024251020419,
+        "LOWER_CORNER_EAR_1_K1": 0.7970682799291667,
+        "LOWER_CORNER_EAR_1_K2": 0.3549137099901569,
+        "LOWER_CORNER_EAR_2_K1": 0.9758384221895855,
+        "LOWER_CORNER_EAR_2_K2": 0.9041742036375696
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.48849438883202684,
+            0.37123010446221427,
+            0.059317879145469994
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.0585011283821267,
+            0.20343463293389874,
+            0.196140628866123
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.21223592382183099,
+            0.18807416192148718,
+            0.6865947314902
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.8610681093272543,
+            0.5312025434946824,
+            0.834248545435666
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.8317816194364507,
+            0.9666060535845148,
+            0.6984661860218054
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.31237237911795873,
+            0.19638432527937372,
+            0.2016431224494475
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.7361717070700505,
+            0.8002107710362518,
+            0.6603350385436912
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 147,
+      "expected": "passed",
+      "params": {
+        "SLOT_MAIN_LENGTH": 51.03147881967815,
+        "SLOT_MAIN_HEIGHT": 1.9532447228423655,
+        "PATCH_BRICK_1_SIDE_MARGIN": 5.7940435956122975,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.8256577507899983,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 14.591595699755409,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 1.9178012742312456,
+        "PATCH_BRICK_4_MARGIN": 3.909480630067144,
+        "UPPER_CORNER_NOTCH_1_K1": 0.7728403889047835,
+        "UPPER_CORNER_NOTCH_1_K2": 0.9908646238050857,
+        "UPPER_CORNER_EAR_1_K1": 0.7000382077544905,
+        "UPPER_CORNER_EAR_1_K2": 0.5719509479260283,
+        "LOWER_CORNER_NOTCH_1_K1": 0.5890547482235695,
+        "LOWER_CORNER_NOTCH_1_K2": 0.1330496143331396,
+        "LOWER_CORNER_EAR_1_K1": 0.9962134477558368,
+        "LOWER_CORNER_EAR_1_K2": 0.3384519839266152,
+        "LOWER_CORNER_EAR_2_K1": 0.7468649151772261,
+        "LOWER_CORNER_EAR_2_K2": 0.2647331445850405
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.06742704162088645,
+            0.12363342366601959,
+            0.7668790675905839
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.3323329030385528,
+            0.8579011250340018,
+            0.8026727461741018
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.7418258094047666,
+            0.07934626800185555,
+            0.8328483368918171
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.7558216730326842,
+            0.5705978772484357,
+            0.34180873034236436
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.3728175716381486,
+            0.998438210331627,
+            0.7534742260378803
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.7472227133245637,
+            0.3630157120571235,
+            0.9887004786299235
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.6797880843076657,
+            0.2928639795755006,
+            0.42456697171301727
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 158,
+      "expected": "repair cycle",
+      "params": {
+        "SLOT_MAIN_LENGTH": 52.314691201082645,
+        "SLOT_MAIN_HEIGHT": 2.193727656394447,
+        "PATCH_BRICK_1_SIDE_MARGIN": 6.294229283118437,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.656692922947648,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 14.335340252715476,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 2.187807381662323,
+        "PATCH_BRICK_4_MARGIN": 3.6679287519041224,
+        "UPPER_CORNER_NOTCH_1_K1": 0.8192863778476578,
+        "UPPER_CORNER_NOTCH_1_K2": 0.8710737218194957,
+        "UPPER_CORNER_EAR_1_K1": 0.6070878934821694,
+        "UPPER_CORNER_EAR_1_K2": 0.0588367497302811,
+        "LOWER_CORNER_NOTCH_1_K1": 0.7315947631619014,
+        "LOWER_CORNER_NOTCH_1_K2": 0.6998452935071364,
+        "LOWER_CORNER_EAR_1_K1": 0.54621957454404,
+        "LOWER_CORNER_EAR_1_K2": 0.8015885045568814,
+        "LOWER_CORNER_EAR_2_K1": 0.17440679941595671,
+        "LOWER_CORNER_EAR_2_K2": 0.7421363816011564
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.5023785866206804,
+            0.6598768472892795,
+            0.09349334092602349
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.5305360751224498,
+            0.7643528073306439,
+            0.6442019027447561
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.13915737275219178,
+            0.9139046978221073,
+            0.35784312488376285
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.645255998419777,
+            0.7555907634167561,
+            0.9457017630797373
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.09885166649344038,
+            0.009744416042691717,
+            0.061368879014530454
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.58840811359681,
+            0.7040013228486022,
+            0.9860639242614581
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.19082047150329318,
+            0.34656917268138737,
+            0.09541811355490028
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 172,
+      "expected": "unsafe diagonal",
+      "params": {
+        "SLOT_MAIN_LENGTH": 53.24218432451714,
+        "SLOT_MAIN_HEIGHT": 2.0401769127956957,
+        "PATCH_BRICK_1_SIDE_MARGIN": 6.11681906165641,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.663490874688714,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 14.826334380966525,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 2.004554317165634,
+        "PATCH_BRICK_4_MARGIN": 3.7125109995337,
+        "UPPER_CORNER_NOTCH_1_K1": 0.748659235916501,
+        "UPPER_CORNER_NOTCH_1_K2": 0.9445136633296407,
+        "UPPER_CORNER_EAR_1_K1": 0.5821652862529424,
+        "UPPER_CORNER_EAR_1_K2": 0.46476052875487234,
+        "LOWER_CORNER_NOTCH_1_K1": 0.9909507402037647,
+        "LOWER_CORNER_NOTCH_1_K2": 0.8536802813824901,
+        "LOWER_CORNER_EAR_1_K1": 0.30315902591969957,
+        "LOWER_CORNER_EAR_1_K2": 0.07878636795541048,
+        "LOWER_CORNER_EAR_2_K1": 0.4628113673537688,
+        "LOWER_CORNER_EAR_2_K2": 0.31423917451456007
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.6001976467456841,
+            0.8255141955829185,
+            0.3962414519212755
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.808774282431425,
+            0.06321296639429841,
+            0.6415328005082316
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.8581622690431251,
+            0.6814177139606642,
+            0.9014352074380425
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.48109016913109603,
+            0.791072145038411,
+            0.9652561335888695
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.9208986928608031,
+            0.6902905091667447,
+            0.3840536678852521
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.07552211739418076,
+            0.49405653742555816,
+            0.1937817785928579
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.3154858754783681,
+            0.35359238764672535,
+            0.8610747136801259
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 247,
+      "expected": "passed",
+      "params": {
+        "SLOT_MAIN_LENGTH": 56.88815216862858,
+        "SLOT_MAIN_HEIGHT": 2.184788151810614,
+        "PATCH_BRICK_1_SIDE_MARGIN": 6.027244150302423,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.5795756529918084,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 15.197545217704857,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 2.0762710075241126,
+        "PATCH_BRICK_4_MARGIN": 3.9570217385875646,
+        "UPPER_CORNER_NOTCH_1_K1": 0.9028525019573441,
+        "UPPER_CORNER_NOTCH_1_K2": 0.8110455845444375,
+        "UPPER_CORNER_EAR_1_K1": 0.9175561571263908,
+        "UPPER_CORNER_EAR_1_K2": 0.350649200811237,
+        "LOWER_CORNER_NOTCH_1_K1": 0.41559172078549356,
+        "LOWER_CORNER_NOTCH_1_K2": 0.26874364615807933,
+        "LOWER_CORNER_EAR_1_K1": 0.44936242716407465,
+        "LOWER_CORNER_EAR_1_K2": 0.9698046254985867,
+        "LOWER_CORNER_EAR_2_K1": 0.5871412801677004,
+        "LOWER_CORNER_EAR_2_K2": 0.7926854241573775
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.3273313138107344,
+            0.6950480221738837,
+            0.07362894769426977
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.8749672646459399,
+            0.5371567086705894,
+            0.8468427429114461
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.5336546305835257,
+            0.21475423619925627,
+            0.4418209588814422
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.8298149539686194,
+            0.25965911272567654,
+            0.5896413072056272
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.7536644910797458,
+            0.9475411999218205,
+            0.5117359178134047
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.5327802567411459,
+            0.1709302607474076,
+            0.22815593517615446
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.18790648773428564,
+            0.9208712899319457,
+            0.3965160811909457
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 251,
+      "expected": "unsafe diagonal",
+      "params": {
+        "SLOT_MAIN_LENGTH": 55.33749801339979,
+        "SLOT_MAIN_HEIGHT": 1.9797851351456417,
+        "PATCH_BRICK_1_SIDE_MARGIN": 5.5548254558332335,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.422954051165867,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 15.464123258998546,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 2.0914526791111707,
+        "PATCH_BRICK_4_MARGIN": 3.743962678741736,
+        "UPPER_CORNER_NOTCH_1_K1": 0.8898607579679071,
+        "UPPER_CORNER_NOTCH_1_K2": 0.6997408194036586,
+        "UPPER_CORNER_EAR_1_K1": 0.356021152624646,
+        "UPPER_CORNER_EAR_1_K2": 0.9364031816384076,
+        "LOWER_CORNER_NOTCH_1_K1": 0.7201247573803861,
+        "LOWER_CORNER_NOTCH_1_K2": 0.2051341391234235,
+        "LOWER_CORNER_EAR_1_K1": 0.29279542010003057,
+        "LOWER_CORNER_EAR_1_K2": 0.20630884961961699,
+        "LOWER_CORNER_EAR_2_K1": 0.5125586794366397,
+        "LOWER_CORNER_EAR_2_K2": 0.9847113174045172
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.6406652480453442,
+            0.7440668476820059,
+            0.661266241171708
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.4181919570618289,
+            0.5471154578455569,
+            0.69630048728417
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.6056633977272565,
+            0.43842618790007415,
+            0.4025628802857681
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.8004157328801513,
+            0.5122190891018669,
+            0.8416008934413619
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.6297088711182415,
+            0.6167310105800123,
+            0.13150281301766703
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.44295007029568817,
+            0.2285908250629557,
+            0.056228913537774046
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.059374907110793504,
+            0.38403871870983525,
+            0.7322174575210456
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    },
+    {
+      "sample": 277,
+      "expected": "protected",
+      "params": {
+        "SLOT_MAIN_LENGTH": 48.45811932418005,
+        "SLOT_MAIN_HEIGHT": 1.9985366561240778,
+        "PATCH_BRICK_1_SIDE_MARGIN": 5.458511895689367,
+        "PATCH_BRICK_1_TOP_MARGIN": 2.56307811539568,
+        "PATCH_BRICK_2_HEIGHT_MARGIN": 14.639251257314557,
+        "PATCH_BRICK_3_BOTTOM_MARGIN": 1.9960109609268712,
+        "PATCH_BRICK_4_MARGIN": 4.328719801971002,
+        "UPPER_CORNER_NOTCH_1_K1": 0.759183252958484,
+        "UPPER_CORNER_NOTCH_1_K2": 0.9481739179384505,
+        "UPPER_CORNER_EAR_1_K1": 0.25425004105814303,
+        "UPPER_CORNER_EAR_1_K2": 0.9039350518764022,
+        "LOWER_CORNER_NOTCH_1_K1": 0.5999991307818038,
+        "LOWER_CORNER_NOTCH_1_K2": 0.6923647980907414,
+        "LOWER_CORNER_EAR_1_K1": 0.8267400111354829,
+        "LOWER_CORNER_EAR_1_K2": 0.8483712740095639,
+        "LOWER_CORNER_EAR_2_K1": 0.7118387689193837,
+        "LOWER_CORNER_EAR_2_K2": 0.14916814447372434
+      },
+      "tree": {
+        "U1": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.4332713772987063,
+            0.31223952138548294,
+            0.08437385451448806
+          ]
+        },
+        "U2": {
+          "parent": "SLOT",
+          "side": "U",
+          "k": [
+            0.9157040155955979,
+            0.051898703623088016,
+            0.574063340337749
+          ]
+        },
+        "U1/L1": {
+          "parent": "U1",
+          "side": "L",
+          "k": [
+            0.07607012670268716,
+            0.35522490235654036,
+            0.9686471921586258
+          ]
+        },
+        "U1/R1": {
+          "parent": "U1",
+          "side": "R",
+          "k": [
+            0.08704177682826347,
+            0.49039739904770835,
+            0.3227786370002325
+          ]
+        },
+        "D1": {
+          "parent": "SLOT",
+          "side": "D",
+          "k": [
+            0.9608291022359362,
+            0.7399914923891995,
+            0.2567374314099375
+          ]
+        },
+        "D1/L1": {
+          "parent": "D1",
+          "side": "L",
+          "k": [
+            0.9438914018124295,
+            0.24854454197127818,
+            0.8642666962759266
+          ]
+        },
+        "D1/R1": {
+          "parent": "D1",
+          "side": "R",
+          "k": [
+            0.4711294864491174,
+            0.22174794977986162,
+            0.17412164441498534
+          ]
+        }
+      },
+      "build_options": {
+        "snap_fraction": 0.05,
+        "tip_clearance": 1,
+        "manufacturing_mode": "repair",
+        "min_feature_mm": 0.1,
+        "feature_snap_mm": 0.05
+      }
+    }
+  ]
+}

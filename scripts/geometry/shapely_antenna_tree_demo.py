@@ -18,6 +18,7 @@ islands. Everything is mirrored about the Y axis.
 """
 
 import tkinter as tk
+import logging
 from tkinter import ttk
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -274,7 +275,7 @@ class AntennaDemo:
         for name, (kind, default) in PARAM_SPECS.items():
             if kind == "abs":
                 widest[name] = default * ABS_RANGE_FACTORS[1]
-        min_x, min_y, max_x, max_y = build(widest, {})["Substrate_Full"].bounds
+        min_x, min_y, max_x, max_y = build(widest, {}, manufacturing_mode='off')["Substrate_Full"].bounds
         pad = 0.04 * max(max_x - min_x, max_y - min_y)
         return (min_x - pad, max_x + pad, min_y - pad, max_y + pad)
 
@@ -402,22 +403,32 @@ class AntennaDemo:
             text=f"{self.current_name} = {value:.4g}" + ("" if kind == "k" else " mm")
         )
 
-        shapes = build(self.params, self.tree_nodes)
+        try:
+            shapes = build(self.params, self.tree_nodes)
+        except ValueError as exc:
+            logging.getLogger(__name__).warning('Geometry rejected: %s', exc)
+            self.status_label.configure(text=f'NOT MANUFACTURABLE\n{exc}')
+            self.ax.clear()
+            self.ax.text(.5,.5,'Geometry rejected; adjust parameters',ha='center',transform=self.ax.transAxes)
+            self.canvas.draw_idle()
+            return
         min_x, min_y, max_x, max_y = shapes["Substrate_Full"].bounds
         self.status_label.configure(
             text=(
                 f"Branches   {len(self.tree_nodes)} (x2 mirrored)\n"
                 f"Substrate  {max_x - min_x:.2f} x {max_y - min_y:.2f} mm\n"
                 f"Footprint  {(max_x - min_x) * (max_y - min_y):.1f} mm^2\n"
-                f"Metal      {shapes['metal_area']:.1f} mm^2"
+                f"Metal      {shapes['metal_area']:.1f} mm^2\n"
+                f"Manufacturing 0.1 mm: {len(shapes['Manufacturing']['actions'])} repairs"
             )
         )
 
         self.ax.clear()
-        draw_geom(self.ax, shapes["Patch"], facecolor="tab:green", alpha=0.3, edgecolor="tab:green")
+        draw_geom(self.ax, shapes["Copper"], facecolor="tab:green", alpha=0.6, edgecolor="tab:green")
         draw_geom(self.ax, shapes["Substrate_Full"], facecolor="none", edgecolor="black")
-        draw_geom(self.ax, shapes["Slot"], facecolor="tab:blue", alpha=0.6, edgecolor="tab:blue")
-        draw_geom(self.ax, shapes["CPW_Feed_Pin"], **FEED_PIN_STYLE)
+        # Raw branch outlines remain selection guides, never a filled overlay
+        # that would visually undo a copper/gap manufacturing repair.
+        draw_geom(self.ax, shapes["CPW_Feed_Pin"].intersection(shapes['Copper']), **FEED_PIN_STYLE)
         for pad in shapes["SMA_Pads"]:
             draw_geom(self.ax, pad, facecolor="none", edgecolor="black", hatch="//")
 
@@ -433,7 +444,7 @@ class AntennaDemo:
         self.ax.set_xlim(self.view_limits[0], self.view_limits[1])
         self.ax.set_ylim(self.view_limits[2], self.view_limits[3])
         self.ax.set_aspect("equal")
-        self.ax.set_title("MSA-BP: patch / slot / feed pin")
+        self.ax.set_title("MSA-BP: manufactured copper / feed pin (0.1 mm)")
         self.canvas.draw_idle()
 
 

@@ -7,7 +7,9 @@ semantics derive from the G5 implementation at b503ff1, with optional K2 saturat
 Use default_params(), default_tree(), then build(params, tree). The tree is an
 insertion-ordered dictionary with parents before children; each node records
 parent, side (U/D/L/R), and three K values. Mirroring is (x,y)->(-x,y).
-The model retains the demo's assumptions rather than adding a new validator.
+Raw construction semantics are retained. Copper is additionally projected onto
+the manufacturing constraints by default; use manufacturing_mode='off' only for
+explicit historical reproduction. Consumers must use Copper, not Patch-Slot.
 """
 
 from __future__ import annotations
@@ -17,6 +19,11 @@ from math import isfinite
 from shapely.affinity import scale
 from shapely.geometry import LineString, Polygon, box
 from shapely.ops import unary_union
+
+if __package__:
+    from . import manufacturing
+else:
+    import manufacturing
 
 # ---------------------------------------------------------------------------
 # Fixed (non-optimizable) constants
@@ -310,7 +317,7 @@ def _branch_faces(info):
             "D": {"base": min_y, "span": run, "cap": run}}
 
 
-def build(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION,
+def _build_raw(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION,
           tip_clearance=BRANCH_TIP_CLEARANCE):
     """Build every polygon of the antenna from the shape parameters and the branch tree."""
     relax_upper_k(0.0, snap_fraction)  # Validate even for an empty tree.
@@ -508,3 +515,32 @@ def build(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION,
         "branches": branches,
         "metal_area": Patch.difference(Slot).union(CPW_Feed_Pin).area,
     }
+
+
+def build(params, tree, *, snap_fraction=BRANCH_K2_SNAP_FRACTION,
+          tip_clearance=BRANCH_TIP_CLEARANCE, manufacturing_mode='repair',
+          min_feature_mm=manufacturing.MIN_FEATURE_MM,
+          feature_snap_mm=manufacturing.SNAP_THRESHOLD_MM,
+          coordinate_quantum_mm=manufacturing.QUANTUM_MM):
+    """Build raw construction guides plus the authoritative final Copper.
+
+    Manufacturing errors are ValueErrors with a JSON-serializable .report.
+    The branch tree is never modified to pretend repaired shapes were raw ones.
+    """
+    manufacturing.validate_settings(min_feature_mm,feature_snap_mm,coordinate_quantum_mm,manufacturing_mode)
+    shapes = _build_raw(params, tree, snap_fraction=snap_fraction, tip_clearance=tip_clearance)
+    raw = shapes['Patch'].difference(shapes['Slot']).union(shapes['CPW_Feed_Pin'])
+    protected = unary_union([shapes['Feed_Region'].buffer(min_feature_mm,join_style=2),
+                             *shapes['SMA_Pads']])
+    copper, report = manufacturing.repair_copper(
+        raw, shapes['Substrate_Full'], protected, minimum=min_feature_mm,
+        threshold=feature_snap_mm, quantum=coordinate_quantum_mm, mode=manufacturing_mode)
+    if manufacturing_mode != 'off':
+        pin = manufacturing.quantize(shapes['CPW_Feed_Pin'],coordinate_quantum_mm,
+                                     shapes['Substrate_Full'].bounds[1])
+        if not any(p.buffer(manufacturing.TOL).covers(pin) for p in manufacturing.polygons(copper)):
+            report.update(status='rejected',reason='feed pin no longer belongs to one copper component')
+            raise manufacturing.ManufacturingError(report['reason'],report)
+    shapes.update(Copper=copper, Copper_Raw=raw, Manufacturing=report,
+                  Manufacturing_Protected=protected, metal_area=copper.area)
+    return shapes

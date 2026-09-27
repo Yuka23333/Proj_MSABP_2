@@ -45,7 +45,7 @@ RECORDED_PORT_NUMBER = 1
 RECORDED_PORT_TREE_ITEM = rf"Ports\port{RECORDED_PORT_NUMBER}"
 EXPECTED_SOLVER_NAME = "HF Time Domain"
 RECORDED_FARFIELD_MIN_GHZ = "2"
-RECORDED_FARFIELD_MAX_GHZ = "8"
+RECORDED_FARFIELD_MAX_GHZ = "6"
 RECORDED_FARFIELD_STEP_GHZ = "0.1"
 
 
@@ -56,7 +56,11 @@ def _format_frequency_tenths(value: int) -> str:
 
 RECORDED_FARFIELD_MONITOR_NAMES = tuple(
     f"farfield (f={_format_frequency_tenths(value)})"
-    for value in range(20, 81)
+    for value in range(
+        round(float(RECORDED_FARFIELD_MIN_GHZ)*10),
+        round(float(RECORDED_FARFIELD_MAX_GHZ)*10)+1,
+        round(float(RECORDED_FARFIELD_STEP_GHZ)*10),
+    )
 )
 RECORDED_FARFIELD_MONITOR_TREE_ITEMS = tuple(
     rf"Field Monitors\{name}" for name in RECORDED_FARFIELD_MONITOR_NAMES
@@ -238,14 +242,20 @@ def inspect_project(project: Any, timeout: float | None) -> ProjectPrerequisites
 def inspect_recorded_simulation_setup(
     project: Any,
     timeout: float | None = DEFAULT_COMMAND_TIMEOUT,
+    *,
+    expected_solver_name: str = EXPECTED_SOLVER_NAME,
 ) -> ProjectPrerequisites:
-    """Require Port 1 and every monitor from the recorded 2--8 GHz sweep."""
+    """Require Port 1 and every monitor from the current 2--6 GHz sweep.
+
+    Mesh refinement is configured in the template, not by extending the band.
+    Legacy templates may retain additional monitors; these are not required.
+    """
 
     prerequisites = inspect_project(project, timeout)
-    if prerequisites.solver_name != EXPECTED_SOLVER_NAME:
+    if prerequisites.solver_name != expected_solver_name:
         raise RuntimeError(
             "unexpected active CST solver: "
-            f"expected={EXPECTED_SOLVER_NAME}, actual={prerequisites.solver_name}"
+            f"expected={expected_solver_name}, actual={prerequisites.solver_name}"
         )
     expected_port = RECORDED_PORT_TREE_ITEM
     if expected_port not in prerequisites.ports:

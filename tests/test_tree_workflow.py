@@ -125,6 +125,8 @@ def test_mock_solve_exports_and_princess_accepts_tree_artifacts(tmp_path, monkey
     monkeypatch.setattr(runner.builder, 'build_on_project', lambda *a, **k: {'copper_components': 3})
     def solve(p, output, **kwargs):
         assert p is project
+        kwargs['stage_callback']('solving')
+        kwargs['stage_callback']('exporting_1d_results')
         for filename in ('S11.csv', 'Rad_Eff.csv', 'Tot_Eff.csv'):
             (output.parent/filename).write_text('3 -10\n4 -20\n5 -10\n')
         ffs = case_runner.project_farfield_source_path(project_path)
@@ -136,5 +138,7 @@ def test_mock_solve_exports_and_princess_accepts_tree_artifacts(tmp_path, monkey
                                     project_path=project_path, output_root=tmp_path/'out', project=project)
     manifest = json.loads(result.manifest_path.read_text())
     assert manifest['status'] == 'completed'
+    assert 'solving' in manifest['stage_seconds']
+    assert manifest['stage_seconds']['solving'] >= 0
     assert set(manifest['artifacts']) == {'s11','rad_eff','tot_eff','farfield_source','geometry_tree'}
     PrincessCoordinator._verify_manifest_artifacts(result.case_directory, manifest)

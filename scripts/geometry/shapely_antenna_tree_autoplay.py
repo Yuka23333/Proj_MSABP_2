@@ -43,7 +43,9 @@ def check(app):
     shown = set(treeview_ids(app.tree)) - {demo.ROOT}
     if shown != set(app.tree_nodes):
         problems.append(f"Treeview/model mismatch: {sorted(shown ^ set(app.tree_nodes))}")
-    shapes = demo.build(app.params, app.tree_nodes)
+    # Random invalid manufacturing candidates are expected; the GUI reports
+    # them. This diagnostic still verifies the underlying branch-tree rules.
+    shapes = demo.build(app.params, app.tree_nodes, manufacturing_mode='off')
     for node_id, info in shapes["branches"].items():
         outside = info["branch"].difference(shapes["Patch"]).area
         if outside > TOLERANCE:

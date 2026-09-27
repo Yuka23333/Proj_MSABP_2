@@ -23,15 +23,21 @@ def source_hash(path):
 def run_csv_row(row, *, project_path, output_root, project=None, case_id=None,
                 id_width=4, coordinate_quantum_mm=.01, allow_disconnected_conductor=False,
                 command_timeout=15, overwrite=False, save_project_after_case=False,
-                dry_run=False, stage_callback=None, local_artifact_root=None):
+                dry_run=False, stage_callback=None, local_artifact_root=None,
+                expected_solver_name=exports.EXPECTED_SOLVER_NAME):
     started = time.perf_counter()
     started_at = datetime.now(timezone.utc).isoformat()
     resolved = common._case_id_from_row(row, case_id)
     stage = 'precheck'
+    stage_started = started
+    stage_seconds = {}
     opened_here = False
     def notify(name):
-        nonlocal stage
+        nonlocal stage, stage_started
+        now = time.perf_counter()
+        stage_seconds[stage] = stage_seconds.get(stage, 0.0) + now - stage_started
         stage = name
+        stage_started = now
         common._notify(stage_callback, name)
     try:
         if 'geometry_valid' in row and not common._parse_csv_bool(row['geometry_valid'], 'geometry_valid'):
@@ -61,7 +67,8 @@ def run_csv_row(row, *, project_path, output_root, project=None, case_id=None,
             notify('building_tree_geometry')
             geometry_report = builder.build_on_project(project, prepared, folder, command_timeout)
             notify('checking_simulation_setup')
-            exports.inspect_recorded_simulation_setup(project, command_timeout)
+            exports.inspect_recorded_simulation_setup(project, command_timeout,
+                expected_solver_name=expected_solver_name)
             source = common.project_farfield_source_path(path)
             before = common._file_generation_signature(source)
             exports.solve_and_export_s11_on_project(project, s11, overwrite=overwrite,
@@ -75,11 +82,16 @@ def run_csv_row(row, *, project_path, output_root, project=None, case_id=None,
                                   ('tot_eff',common.TOT_EFF_FILENAME),('farfield_source',common.FARFIELD_SOURCE_FILENAME)]:
                 artifacts[key] = common._artifact_record(folder/filename, folder)
             artifacts['geometry_tree'] = common._artifact_record(folder/'geometry_tree.json', folder)
+        notify('writing_manifest')
         manifest = {'schema_version': 1, 'simulation_mode': SIMULATION_MODE, 'case_id': resolved,
+                    'expected_solver_name': expected_solver_name,
                     'status': 'dry_run' if dry_run else 'completed', 'dry_run': dry_run,
                     'started_at_utc': started_at, 'completed_at_utc': datetime.now(timezone.utc).isoformat(),
                     'elapsed_seconds': time.perf_counter()-started, 'project_path': str(path),
+                    'stage_seconds': dict(stage_seconds),
                     'parameters': request, 'geometry': geometry_report, 'artifacts': artifacts,
+                    'manufacturing': prepared['manufacturing'],
+                    'manufactured_copper_sha256': prepared['manufactured_copper_sha256'],
                     'geometry_sha256': common.sha256_file(folder/'geometry_tree.json'),
                     'tree_request_sha256': hashlib.sha256(json.dumps(request,sort_keys=True).encode()).hexdigest(),
                     'baseline_history_sha256': hashlib.sha256(json.dumps([
@@ -88,8 +100,8 @@ def run_csv_row(row, *, project_path, output_root, project=None, case_id=None,
                     ], sort_keys=True).encode()).hexdigest(),
                     'source_sha256': {'builder': source_hash(builder.__file__),
                                       'model': source_hash(builder.model.__file__),
+                                      'manufacturing': source_hash(builder.model.manufacturing.__file__),
                                       'runner': source_hash(__file__)}}
-        notify('writing_manifest')
         manifest_path = folder/common.MANIFEST_FILENAME
         common._write_manifest(manifest_path, manifest)
         notify('completed')
@@ -99,6 +111,12 @@ def run_csv_row(row, *, project_path, output_root, project=None, case_id=None,
             rad_eff_path=None if dry_run else folder/common.RAD_EFF_FILENAME,
             tot_eff_path=None if dry_run else folder/common.TOT_EFF_FILENAME, simulation_mode=SIMULATION_MODE)
     except Exception as exc:
+        if isinstance(exc, builder.model.manufacturing.ManufacturingError):
+            rejection = Path(output_root).resolve() / 'manufacturing_rejections'
+            rejection.mkdir(parents=True, exist_ok=True)
+            (rejection / f'{resolved}_{time.time_ns()}.json').write_text(
+                json.dumps({'case_id':resolved, 'tree_json':row.get('tree_json'),
+                            'report':exc.report}, indent=2), encoding='utf-8')
         raise common.CaseRunError(resolved, stage, str(exc)) from exc
     finally:
         if opened_here:

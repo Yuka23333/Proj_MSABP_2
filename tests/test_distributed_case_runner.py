@@ -220,7 +220,9 @@ def test_recorded_setup_inspection_does_not_mutate_project(
     )
 
     assert prerequisites.ports == (cst_run_and_export_s11.RECORDED_PORT_TREE_ITEM,)
-    assert len(prerequisites.farfield_monitors) == 61
+    assert len(prerequisites.farfield_monitors) == 41
+    assert prerequisites.farfield_monitors[0] == r"Field Monitors\farfield (f=2)"
+    assert prerequisites.farfield_monitors[-1] == r"Field Monitors\farfield (f=6)"
 
 
 def test_case_runner_dry_run_never_connects_to_cst(
