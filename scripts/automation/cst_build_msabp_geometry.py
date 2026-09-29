@@ -29,6 +29,14 @@ from scripts.geometry import antenna_closed_curves  # noqa: E402
 from scripts.geometry import antenna_outline  # noqa: E402
 from scripts.geometry import antenna_polygon_export  # noqa: E402
 from scripts.geometry import shapely_antenna_model  # noqa: E402
+from scripts.geometry.conductor_components import validate_component_curves  # noqa: E402
+from scripts.automation.cst_conductor_components import (  # noqa: E402
+    CONDUCTOR_COMPONENT_CURVE,
+    ISLAND_COMPONENT_SUFFIX,
+    component_commands,
+    component_verification,
+)
+from scripts.automation.cst_generate_polygen import _vba_main_body  # noqa: E402
 
 try:
     from .cst_generate_polygen import (
@@ -130,6 +138,7 @@ class GeometryBuildReport:
     reflector_volume_mm3: float
     reflector_z_min_mm: float
     reflector_z_max_mm: float
+    conductor_components: tuple[antenna_polygon_export.ConductorComponentCurves, ...] = ()
 
 
 def _solid_ref(component_name: str, solid_name: str) -> str:
@@ -343,7 +352,16 @@ def _build_direct_polygon_specs(
     patch_area_mm2 = _polygon_area(patch_points)
     slot_area_mm2 = _polygon_area(slot_points)
     guide_area_mm2 = _polygon_area(guide_points)
+    if exported.source_holes:
+        patch_area_mm2 -= sum(_polygon_area(ring) for ring in exported.source_holes.get("Patch", ()))
+        slot_area_mm2 -= sum(_polygon_area(ring) for ring in exported.source_holes.get("Slot", ()))
+        guide_area_mm2 -= sum(_polygon_area(ring) for ring in exported.source_holes.get("CPW_Feed_Pin", ()))
     final_conductor_area_mm2 = patch_area_mm2 - slot_area_mm2 + guide_area_mm2
+    if exported.conductor_components:
+        component_polygons = validate_component_curves(
+            exported.vertices, exported.conductor_components, exported.source_holes,
+        )
+        final_conductor_area_mm2 = sum(p.area for p in component_polygons)
     cutout_area_mm2 = 2.0 * reflector_cutout_half_width_mm * reflector_cutout_depth_mm
     reflector_area_mm2 = substrate_area_mm2 - cutout_area_mm2
     report = GeometryBuildReport(
@@ -357,7 +375,7 @@ def _build_direct_polygon_specs(
         guide_area_mm2=guide_area_mm2,
         final_conductor_area_mm2=final_conductor_area_mm2,
         final_conductor_volume_mm3=(final_conductor_area_mm2 * copper_thickness_mm),
-        final_conductor_component_count=1,
+        final_conductor_component_count=len(exported.conductor_components) or 1,
         coordinate_quantum_mm=exported.quantize_step_mm,
         reflector_cutout_width_mm=2.0 * reflector_cutout_half_width_mm,
         reflector_cutout_depth_mm=reflector_cutout_depth_mm,
@@ -365,6 +383,7 @@ def _build_direct_polygon_specs(
         reflector_volume_mm3=reflector_area_mm2 * copper_thickness_mm,
         reflector_z_min_mm=substrate_thickness_mm - copper_thickness_mm,
         reflector_z_max_mm=substrate_thickness_mm,
+        conductor_components=exported.conductor_components,
     )
     return specs, report
 
@@ -412,18 +431,9 @@ def build_sampled_polygon_specs(
     payload = shapely_antenna_model.polygon_export_payload(
         parameters,
         quantize_step_mm=coordinate_quantum_mm,
+        include_conductor_components=True,
     )
-    exported = antenna_polygon_export.AntennaPolygonExport(
-        source_path=Path("<sampled-in-memory>"),
-        quantize_step_mm=float(payload["meta"]["quantize_step"]),
-        vertices={
-            name: tuple(
-                (float(point[0]), float(point[1]))
-                for point in payload["vertices"][name]
-            )
-            for name in antenna_polygon_export.REQUIRED_VERTEX_KEYS
-        },
-    )
+    exported = antenna_polygon_export.polygon_export_from_payload(payload, "<sampled-in-memory>")
     return _build_direct_polygon_specs(
         exported,
         copper_thickness_mm=copper_thickness_mm,
@@ -711,6 +721,8 @@ Sub Main()
     Component.New "{component_name}"
 {delete_solid_lines}
 {delete_curve_lines}
+    Component.Delete "{component_name}{ISLAND_COMPONENT_SUFFIX}"
+    Curve.DeleteCurve "{CONDUCTOR_COMPONENT_CURVE}"
     On Error GoTo 0
 End Sub
 """
@@ -857,6 +869,13 @@ def build_verification_vba(
             )
         )
     closed_curve_checks = "\n".join(closed_curve_lines)
+    conductor_checks = f'    actualVolume = Solid.GetVolume("{patch_ref}")'
+    if report.conductor_components:
+        patch_spec = next(spec for spec in specs if spec.solid_name == PATCH_SOLID_NAME)
+        conductor_checks = component_verification(
+            report.conductor_components, component_name, PATCH_SOLID_NAME,
+            patch_spec.material_name, patch_spec.thickness_mm,
+        )
     return f"""
 Sub Main()
     Dim actualVolume As Double
@@ -902,7 +921,7 @@ Sub Main()
         Err.Raise vbObjectError + 1006, , "substrate volume mismatch"
     End If
 
-    actualVolume = Solid.GetVolume("{patch_ref}")
+{conductor_checks}
     If Abs(actualVolume - {expected_volume:.15g}) > {volume_tolerance:.15g} Then
         Err.Raise vbObjectError + 1004, , "final conductor volume mismatch"
     End If
@@ -943,6 +962,12 @@ def _build_live_vba_sequence(
     ):
         commands.append(("define substrate material", build_substrate_material_vba()))
     for spec in specs:
+        if report.conductor_components and spec.solid_name in {
+            PATCH_SOLID_NAME, SLOT_SOLID_NAME, GUIDE_SOLID_NAME,
+        }:
+            # Only retain the original reference curves (restored below). The
+            # final copper regions are already boolean-resolved by Shapely.
+            continue
         commands.extend(
             (
                 (
@@ -966,9 +991,16 @@ def _build_live_vba_sequence(
                 ),
             )
         )
+    if report.conductor_components:
+        patch_spec = next(spec for spec in specs if spec.solid_name == PATCH_SOLID_NAME)
+        commands.extend(component_commands(
+            report.conductor_components, component_name, PATCH_SOLID_NAME,
+            patch_spec.material_name, patch_spec.thickness_mm,
+        ))
+    else:
+        commands.append(("boolean Patch - slot + guide", build_boolean_vba(component_name)))
     commands.extend(
         (
-            ("boolean Patch - slot + guide", build_boolean_vba(component_name)),
             (
                 "subtract reflector connector clearance",
                 build_reflector_boolean_vba(component_name),
@@ -1156,7 +1188,12 @@ def build_msabp_in_cst(
 
     for label, vba in commands:
         print(f"Executing: {label}")
-        execute_project_vba(project, label, vba, timeout=timeout)
+        if report.conductor_components:
+            # Structural operations must survive save/reopen and history replay.
+            # Do not silently fall back to unrecorded schematic edits here.
+            project.model3d.add_to_history(label, _vba_main_body(vba), timeout=timeout)
+        else:
+            execute_project_vba(project, label, vba, timeout=timeout)
 
     if save_project:
         print("Executing: save project")
@@ -1187,7 +1224,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--polygon-json",
         type=Path,
         default=DEFAULT_POLYGON_JSON_PATH,
-        help="Three-curve JSON exported by shapely_rectangle_test.py.",
+        help="Polygon JSON; accepts optional final conductor component/hole curves.",
     )
     parser.add_argument(
         "--thickness",

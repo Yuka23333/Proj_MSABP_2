@@ -12,7 +12,9 @@ DEFAULT_POLYGON_POINTS = [
 
 
 def _format_cst_number(value):
-    return f"{value:g}"
+    # Boolean intersections need more than six significant digits. Rounding
+    # them again can open small gaps or change the component volume.
+    return f"{value:.15g}"
 
 
 def _validate_polygon_points(points):

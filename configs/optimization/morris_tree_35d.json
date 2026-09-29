@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "campaign_id": "morris-tree-35d-016-001",
+  "initial_trajectories": 16,
+  "num_levels": 4,
+  "seed": 20260929,
+  "max_candidates_per_batch": 1000,
+  "candidate_pool_factor": 2,
+  "absolute_factors": [0.9, 1.1],
+  "corner_k_bounds": [0.0, 1.0],
+  "branch_k_bounds": [0.0, 1.0],
+  "range_overrides": {},
+  "topology": ["U1", "U1/L1", "U1/R1", "D1", "D1/L1", "D1/R1"],
+  "build_options": {
+    "snap_fraction": 0.05,
+    "tip_clearance": 1.0,
+    "manufacturing_mode": "repair",
+    "min_feature_mm": 0.1,
+    "feature_snap_mm": 0.05
+  },
+  "coordinate_quantum_mm": 0.01,
+  "band_ghz": [3.1, 4.8],
+  "project": "simulations/models/msa-bp.cst",
+  "devices_config": "configs/simulation/princess_devices.json",
+  "devices": ["local","coconutg2","convallariag5"],
+  "max_attempts": 3
+}
