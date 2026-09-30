@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-11T20:36:24.022724+00:00",
+  "plan_id": "doe-1u1d-14d-bridge-64-001",
+  "title": "1U1D 14D Bridge DoE 01",
+  "purpose": "paired base-plus-delta bridge from the completed 1U slice to the active 1U1D topology",
+  "simulation_mode": "antenna_characterization",
+  "topology": {
+    "base": "1u",
+    "active": "1u1d",
+    "base_dimension": 11,
+    "new_branch_dimension": 3,
+    "effective_dimension": 14
+  },
+  "evaluation_accounting": {
+    "new_solver_evaluations": 64,
+    "reused_k3_zero_baselines": 16,
+    "analysis_rows_after_pairing": 80,
+    "parent_count": 16,
+    "active_down_settings_per_parent": 4
+  },
+  "source_pool": {
+    "observation_count": 1024,
+    "completed_non_penalty_count": 993,
+    "excluded_count": 31,
+    "path": "results/raw/msabp-phase2-krvea-roi-radgain-64-001/_krvea/observations.csv",
+    "sha256": "d40c4bda60e885ce1a94ca05389e1ae1ed1d13f8a1db8bf9d33bc44bbe8671f3"
+  },
+  "selection": {
+    "phase2_propagation_labeled_mode_count": 6,
+    "design_space_maximin_count": 6,
+    "local_surprise_count": 4,
+    "holdout_rule": "split by parent_slot, never by individual child row"
+  },
+  "down_branch": {
+    "inactive_contract": "K3=0; K1 and K2 are conditionally inactive",
+    "active_range": [
+      0.05,
+      1.0
+    ],
+    "design_type": "shared_optimized_latin_hypercube",
+    "seed": 20260911,
+    "shared_settings": [
+      {
+        "id": "d01",
+        "BRANCH_DOWN_1_K": 0.582808350841461,
+        "BRANCH_DOWN_1_K2": 0.09264864226566155,
+        "BRANCH_DOWN_1_K3": 0.6902203557307804
+      },
+      {
+        "id": "d02",
+        "BRANCH_DOWN_1_K": 0.27284868009534236,
+        "BRANCH_DOWN_1_K2": 0.5896396211822189,
+        "BRANCH_DOWN_1_K3": 0.869131245665747
+      },
+      {
+        "id": "d03",
+        "BRANCH_DOWN_1_K": 0.3330784483741687,
+        "BRANCH_DOWN_1_K2": 0.45327531738561744,
+        "BRANCH_DOWN_1_K3": 0.14341657886582593
+      },
+      {
+        "id": "d04",
+        "BRANCH_DOWN_1_K": 0.8424822072132403,
+        "BRANCH_DOWN_1_K2": 0.8989839172634668,
+        "BRANCH_DOWN_1_K3": 0.39141161449096173
+      }
+    ]
+  },
+  "preflight": {
+    "active_geometry_preflight_count": 64,
+    "active_geometry_valid_count": 64,
+    "inactive_equivalence_check_count": 64
+  },
+  "inputs": {
+    "configuration": {
+      "path": "configs/optimization/doe_1u1d_14d_bridge_64.json",
+      "sha256": "89b83e1d5f192ebbf5bd54d61813644b68fafaf29c2ec718f2280e5f1b60d5e7"
+    },
+    "preparation_script": {
+      "path": "scripts/optimization/prepare_doe_1u1d_14d_bridge.py",
+      "sha256": "397d3b7c980170b92fdee7f810475628db5dbf020aad318a97b9dc31a5a1d19b"
+    },
+    "project_template": {
+      "path": "simulations/models/msa-bp.cst",
+      "sha256": "bbc90824d50364619fe25484b60c492c6cb67487916215b1113d604514f1ee7e"
+    }
+  },
+  "outputs": {
+    "worklist": {
+      "path": "data/samples/doe-1u1d-14d-bridge-64.csv",
+      "sha256": "275b66e02a24f5b08b3b428db9e04c8c5e7ac43a65cf163ffa8bf93bb2a3ebe8",
+      "row_count": 64
+    },
+    "parent_audit": {
+      "path": "data/samples/doe-1u1d-14d-bridge-64.parents.csv",
+      "sha256": "9cab197d778f37e8a557e60cbfda90049796bc5584e5d6ec6fc67602fe652edc",
+      "row_count": 16
+    }
+  },
+  "princess_command": "C:\\Users\\David\\.conda\\envs\\cstpy\\python.exe scripts\\simulation\\princess.py start --csv data\\samples\\doe-1u1d-14d-bridge-64.csv --run-id doe-1u1d-14d-bridge-64-001 --device convallariag5 --device coconutg2"
+}

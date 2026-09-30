@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "plan": {
+    "plan_id": "doe-1u1d-14d-bridge-64-001",
+    "title": "1U1D 14D Bridge DoE 01",
+    "topology_id": "1u1d",
+    "base_topology_id": "1u",
+    "effective_dimension": 14,
+    "new_solver_evaluations": 64,
+    "reused_baseline_evaluations": 16,
+    "simulation_mode": "antenna_characterization",
+    "source_observations": "results/raw/msabp-phase2-krvea-roi-radgain-64-001/_krvea/observations.csv",
+    "output_csv": "data/samples/doe-1u1d-14d-bridge-64.csv",
+    "parent_audit_csv": "data/samples/doe-1u1d-14d-bridge-64.parents.csv",
+    "plan_manifest_json": "data/samples/doe-1u1d-14d-bridge-64.manifest.json",
+    "project_template": "simulations/models/msa-bp.cst"
+  },
+  "source_contract": {
+    "expected_observation_count": 1024,
+    "expected_completed_non_penalty_count": 993,
+    "base_down_parameters": {
+      "BRANCH_DOWN_1_K": 0.5,
+      "BRANCH_DOWN_1_K2": 0.5,
+      "BRANCH_DOWN_1_K3": 0.0
+    }
+  },
+  "parent_selection": {
+    "phase2_objective_modes": [
+      {
+        "source": "msabp-phase2-krvea-roi-radgain-64-001",
+        "case_id": "krvea_0023",
+        "role": "roi_gain_endpoint"
+      },
+      {
+        "source": "msabp-phase2-krvea-roi-radgain-64-001",
+        "case_id": "krvea_0034",
+        "role": "s11_endpoint"
+      },
+      {
+        "source": "msabp-phase2-krvea-roi-radgain-64-001",
+        "case_id": "krvea_0046",
+        "role": "area_endpoint"
+      },
+      {
+        "source": "msabp-phase2-krvea-roi-radgain-64-001",
+        "case_id": "krvea_0050",
+        "role": "pareto_objective_cover"
+      },
+      {
+        "source": "msabp-phase2-krvea-roi-radgain-64-001",
+        "case_id": "krvea_0015",
+        "role": "pareto_objective_cover"
+      },
+      {
+        "source": "msabp-phase2-krvea-roi-radgain-64-001",
+        "case_id": "krvea_0061",
+        "role": "pareto_objective_cover"
+      }
+    ],
+    "design_space_maximin_count": 6,
+    "local_surprise_count": 4,
+    "local_surprise_neighbors": 12,
+    "local_surprise_top_fraction": 0.1,
+    "local_surprise_objectives": [
+      "worst_s11_linear_amplitude",
+      "negative_roi_theta_radiation_gain_dbi"
+    ]
+  },
+  "down_branch": {
+    "active_range": [0.05, 1.0],
+    "inactive_gate_parameter": "BRANCH_DOWN_1_K3",
+    "design_type": "shared_optimized_latin_hypercube",
+    "seed": 20260911,
+    "settings": [
+      {
+        "id": "d01",
+        "BRANCH_DOWN_1_K": 0.582808350841461,
+        "BRANCH_DOWN_1_K2": 0.09264864226566155,
+        "BRANCH_DOWN_1_K3": 0.6902203557307804
+      },
+      {
+        "id": "d02",
+        "BRANCH_DOWN_1_K": 0.27284868009534236,
+        "BRANCH_DOWN_1_K2": 0.5896396211822189,
+        "BRANCH_DOWN_1_K3": 0.869131245665747
+      },
+      {
+        "id": "d03",
+        "BRANCH_DOWN_1_K": 0.3330784483741687,
+        "BRANCH_DOWN_1_K2": 0.45327531738561744,
+        "BRANCH_DOWN_1_K3": 0.14341657886582593
+      },
+      {
+        "id": "d04",
+        "BRANCH_DOWN_1_K": 0.8424822072132403,
+        "BRANCH_DOWN_1_K2": 0.8989839172634668,
+        "BRANCH_DOWN_1_K3": 0.39141161449096173
+      }
+    ]
+  },
+  "geometry_policy": {
+    "coordinate_quantum_mm": 0.01,
+    "reject_self_intersection": true,
+    "allow_disconnected_conductor": false,
+    "require_exact_inactive_down_equivalence": true
+  }
+}

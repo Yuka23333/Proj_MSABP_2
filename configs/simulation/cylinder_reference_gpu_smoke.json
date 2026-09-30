@@ -1,0 +1,11 @@
+{
+  "run_id": "cylinder-4layer-reference-001",
+  "device_ids": ["coconutg2"],
+  "ssh_target": "telecom@coconutg2",
+  "device_project_relative_path": "simulations/models/propagate_cylinder_voxel.cst",
+  "worklist_csv": "data/samples/cylinder_4layer_reference_001.csv",
+  "devices_config": "configs/simulation/princess_devices.json",
+  "gpu_poll_seconds": 180,
+  "reference_definition": "scripts.geometry.shapely_antenna_model.DEFAULT_PARAMETERS; not the historical Roblin-Wei paper reference",
+  "phantom_mm": {"bone_radius": 22, "muscle_thickness": 25, "fat_thickness": 6, "skin_thickness": 1.5, "top_z": -7}
+}

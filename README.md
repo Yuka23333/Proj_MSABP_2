@@ -53,6 +53,10 @@
 6. 后处理代码只读取原始结果，并将派生指标写入 `results/processed/<experiment_id>/`。
 7. 图表和结论分别进入 `results/figures/` 与 `results/reports/`。
 
+## 多层幻象任务的设备限制
+
+自 2026-09-24 起，多层 voxel／组织分层幻象任务（包括 `propagate_cylinder_voxel.cst`）仅使用 `coconutg2`，直到用户另行通知。此类 Princess 任务必须显式选择 `device_ids = ["coconutg2"]`；不可分发到 `convallariag5`，也不可在椰子离线或失败时回退到铃兰。其它任务的设备配置不受此限制影响。
+
 ## 路线图
 
 目前 Princess/Maid 分布式仿真框架以 CST 为首个求解器后端。未来计划开放可插拔的 Maid 求解器适配层，逐步支持 MEEP、openEMS 等开源电磁仿真工具，并尽量复用现有的任务分发、失败恢复、进度追踪和结果归档流程。

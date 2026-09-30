@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "campaign_id": "krvea-tree-35d-roi-001",
+  "morris_campaign": "simulations/runs/morris-tree-35d-016-001",
+  "output_directory": "simulations/runs/krvea-tree-35d-roi-001",
+  "initial_design": {
+    "training_count": 128,
+    "holdout_count": 64,
+    "include_reference": true,
+    "seed": 20260930,
+    "max_candidates": 20000
+  },
+  "simulation": {
+    "devices_config": "configs/simulation/princess_devices.json",
+    "devices": ["coconutg2", "convallariag5"],
+    "python_path": "C:\\Users\\David\\.conda\\envs\\cstpy\\python.exe",
+    "max_attempts": 3
+  },
+  "proposal": {
+    "device_id": "coconutg2",
+    "python_path": "C:\\Users\\telecom\\miniforge3\\envs\\bocuda\\python.exe",
+    "compute_device": "cuda",
+    "q": 4,
+    "seed": 20260930,
+    "inner_evaluations": 10000,
+    "gp_training_steps": 400
+  },
+  "optimization_budget": null,
+  "validation_approved": false
+}
