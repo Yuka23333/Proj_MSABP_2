@@ -53,6 +53,9 @@ def bundle_manifest(template):
 
 
 def prepare(config):
+    export_e_fields = config.get('export_e_fields', True)
+    if not isinstance(export_e_fields, bool):
+        raise ValueError('export_e_fields must be a JSON boolean')
     folder = ROOT/config['output_directory']
     if config.get('project_mode') not in ('in_place', 'copy_bundle'):
         raise ValueError('Choose in_place or copy_bundle explicitly')
@@ -87,6 +90,7 @@ def prepare(config):
                    'source_case_id': r['sample_id'], 'manufactured_copper_sha256': record['manufactured_copper_sha256']}
         row = {'sample_id': f"kevin_rank_{r['rank']:02d}", 'simulation_mode': 'propagation_s21',
                'geometry_engine': 'saved_tree_pair_v1', 'candidate_rank': r['rank'],
+               'export_e_fields': export_e_fields,
                'source_case_id': r['sample_id'], 'template_cst_sha256': config['template_cst_sha256'],
                'tree_geometry_json': json.dumps(payload, separators=(',', ':')),
                'tree_geometry_sha256': runner.digest(payload)}

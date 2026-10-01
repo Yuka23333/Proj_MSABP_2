@@ -67,6 +67,8 @@ End Sub'''
 def inspect_propagation_infrastructure(
     project: Any,
     timeout: float | None,
+    *,
+    require_e_fields: bool = True,
 ) -> dict[str, Any]:
     """Read-only validation of infrastructure that this runner must preserve."""
 
@@ -90,7 +92,7 @@ def inspect_propagation_infrastructure(
         if item.casefold().startswith("field monitors\\")
         and "e-field" in item.casefold()
     )
-    if len(monitors) < MIN_E_FIELD_MONITORS:
+    if require_e_fields and len(monitors) < MIN_E_FIELD_MONITORS:
         raise RuntimeError(
             "propagation template must retain at least "
             f"{MIN_E_FIELD_MONITORS} E-field monitors; found {len(monitors)}"

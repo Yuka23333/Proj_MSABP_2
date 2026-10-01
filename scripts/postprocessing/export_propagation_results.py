@@ -80,6 +80,7 @@ class PropagationExportReport:
     e_field_monitor_count: int
     excitation_port: int
     files: tuple[ExportedFile, ...]
+    export_e_fields: bool = True
 
 
 def _sha256(path: Path) -> str:
@@ -316,11 +317,12 @@ def export_propagation_results(
     *,
     excitation_port: int = 1,
     field_frequencies_ghz: Sequence[float] | None = None,
+    export_e_fields: bool = True,
     overwrite: bool = False,
     timeout: float = 60.0,
     project: Any | None = None,
 ) -> PropagationExportReport:
-    """Export complex S21 and exact native E-field monitor data.
+    """Export complex S21 and optionally exact native E-field monitor data.
 
     A long-lived Maid may pass its already-open ``project``.  This avoids a
     second CST control connection while retaining the standalone project path
@@ -333,10 +335,13 @@ def export_propagation_results(
         raise FileNotFoundError(f"CST project does not exist: {project_path}")
     if excitation_port <= 0:
         raise ValueError("excitation_port must be positive")
+    if not export_e_fields and field_frequencies_ghz:
+        raise ValueError("field_frequencies_ghz requires export_e_fields=True")
 
     output_directory.mkdir(parents=True, exist_ok=True)
     field_directory = output_directory / "e_field_native"
-    field_directory.mkdir(parents=True, exist_ok=True)
+    if export_e_fields:
+        field_directory.mkdir(parents=True, exist_ok=True)
     s21_path = output_directory / "S21_complex.csv"
     manifest_path = output_directory / "export_manifest.json"
     if not overwrite:
@@ -368,7 +373,7 @@ def export_propagation_results(
         field_frequencies_ghz,
         timeout,
         project=project,
-    )
+    ) if export_e_fields else []
     for frequency_ghz, tree_path in field_items:
         source_field, source_metadata = _native_field_sources(
             project_path,
@@ -417,6 +422,7 @@ def export_propagation_results(
         e_field_monitor_count=len(field_items),
         excitation_port=excitation_port,
         files=tuple(exported),
+        export_e_fields=export_e_fields,
     )
     payload = asdict(report)
     payload["s21_sha256"] = _sha256(s21_path)
@@ -440,6 +446,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Export only this monitor frequency; repeat for multiple values.",
     )
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--no-e-fields", action="store_true",
+                        help="Export S21 only, without requiring E-field monitors/results.")
     parser.add_argument("--timeout", type=float, default=60.0)
     return parser.parse_args(argv)
 
@@ -451,6 +459,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.output_dir,
         excitation_port=args.excitation_port,
         field_frequencies_ghz=args.field_frequencies_ghz,
+        export_e_fields=not args.no_e_fields,
         overwrite=args.overwrite,
         timeout=args.timeout,
     )

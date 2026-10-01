@@ -1,15 +1,16 @@
 {
-  "run_id": "propagation-tree-14d-kevin-7-001",
+  "run_id": "propagation-tree-14d-kevin-7-002",
   "selection": "results/processed/tree_14d_256_candidates_s11_lt_minus7db/candidates.json",
   "candidate_ranks": [1, 2, 3, 8, 9, 11, 28],
   "devices": ["local", "coconutg2", "convallariag5"],
   "devices_config": "configs/simulation/princess_devices.json",
   "template": "simulations/models/msa-bp-propagation.cst",
   "project_mode": "in_place",
+  "export_e_fields": false,
   "template_cst_sha256": "00add8435679f16089b61c97d34510dcf27c32910395c55cf8b894db7b01f2ac",
-  "output_directory": "simulations/runs/propagation-tree-14d-kevin-7-001-inplace-prepared",
-  "results_root": "results/raw/propagation-tree-14d-kevin-7-001",
+  "output_directory": "simulations/runs/propagation-tree-14d-kevin-7-002-inplace-prepared",
+  "results_root": "results/raw/propagation-tree-14d-kevin-7-002",
   "command_timeout_seconds": 60,
   "max_attempts": 3,
-  "notes": "Seven Pareto designs with worst S11 < -7 dB. Kevin phantom and symmetry inherited; no extra reference case. Return S21, retain E-fields on each Maid."
+  "notes": "Seven Pareto designs with worst S11 < -7 dB. Kevin phantom and symmetry inherited; no extra reference case. S21 only; optional E-field retention is disabled for this campaign. Reuses existing device-local projects without copying templates."
 }

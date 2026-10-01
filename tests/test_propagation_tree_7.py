@@ -87,6 +87,70 @@ def test_current_config_selects_all_three_and_inplace():
     assert config['devices'] == ['local', 'coconutg2', 'convallariag5']
     assert config['candidate_ranks'] == [1, 2, 3, 8, 9, 11, 28]
     assert config['project_mode'] == 'in_place'
+    assert config['export_e_fields'] is False
+    assert config['run_id'].endswith('-002')
+
+
+@pytest.mark.parametrize('fields_enabled', [False, True])
+def test_tree_runner_optional_fields(tmp_path, monkeypatch, fields_enabled):
+    row = sample_row()
+    row['export_e_fields'] = str(fields_enabled)
+    events = []
+    items = [r'Ports\port1', r'Ports\port2']
+    if fields_enabled:
+        items += [rf'Field Monitors\e-field (f={f})' for f in (3.1, 4, 4.8)]
+    model = SimpleNamespace(
+        get_tree_items=lambda **kw: events.append('inspect') or items,
+        get_active_solver_name=lambda **kw: 'HF Time Domain',
+        is_solver_running=lambda **kw: False,
+        run_solver=lambda **kw: events.append('solve'))
+    project = SimpleNamespace(model3d=model)
+    monkeypatch.setattr(runner.legacy_runner.cst_run_and_export_s11, 'clear_results_on_project',
+                        lambda *a, **kw: events.append('clear'))
+    monkeypatch.setattr(runner, 'build_pair', lambda *a: events.append('build') or {})
+    def export(_path, folder, **kwargs):
+        assert kwargs['export_e_fields'] == fields_enabled
+        events.append('export')
+        folder.mkdir(parents=True)
+        (folder/'S21_complex.csv').write_text('test S21')
+        return SimpleNamespace(e_field_monitor_count=3 if fields_enabled else 0)
+    monkeypatch.setattr(runner.legacy_runner.export_propagation_results, 'export_propagation_results', export)
+    result = case_runner.run_csv_row(row, project_path=tmp_path/'model.cst',
+                                    output_root=tmp_path/'out', local_artifact_root=tmp_path/'local', project=project)
+    assert events == ['inspect', 'clear', 'build', 'inspect', 'solve', 'export']
+    manifest = json.loads(result.manifest_path.read_text())
+    assert set(manifest['artifacts']) == {'s21'}
+    assert manifest['export_e_fields'] == fields_enabled
+    assert manifest['local_only']['retained_on_maid'] == fields_enabled
+    assert (result.local_e_field_directory is not None) == fields_enabled
+
+
+def test_s21_only_still_checks_ports_solver_and_busy_state():
+    items = [r'Ports\port1', r'Ports\port2']
+    model = SimpleNamespace(get_tree_items=lambda **kw: items,
+                            get_active_solver_name=lambda **kw: 'HF Time Domain',
+                            is_solver_running=lambda **kw: False)
+    project = SimpleNamespace(model3d=model)
+    inspect = runner.legacy_runner.inspect_propagation_infrastructure
+    with pytest.raises(RuntimeError, match='E-field monitors'):
+        inspect(project, 60)
+    assert inspect(project, 60, require_e_fields=False)['e_field_monitors'] == ()
+    items.pop()
+    with pytest.raises(RuntimeError, match='missing manually configured ports'):
+        inspect(project, 60, require_e_fields=False)
+    items.append(r'Ports\port2')
+    model.get_active_solver_name = lambda **kw: 'HF Frequency Domain'
+    with pytest.raises(RuntimeError, match='unexpected active CST solver'):
+        inspect(project, 60, require_e_fields=False)
+    model.get_active_solver_name = lambda **kw: 'HF Time Domain'
+    model.is_solver_running = lambda **kw: True
+    with pytest.raises(RuntimeError, match='already running'):
+        inspect(project, 60, require_e_fields=False)
+
+
+def test_export_fields_config_requires_boolean():
+    with pytest.raises(ValueError, match='JSON boolean'):
+        launch.prepare({'export_e_fields': 'false'})
 
 
 def test_preflight_command_fits_windows_limit(monkeypatch):

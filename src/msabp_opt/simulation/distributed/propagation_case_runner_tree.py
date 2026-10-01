@@ -163,6 +163,7 @@ def run_csv_row(row, *, project_path, output_root, local_artifact_root=None, pro
         stage = name
         common._notify(stage_callback, name)
     try:
+        export_e_fields = common._parse_csv_bool(row.get('export_e_fields', True), 'export_e_fields')
         payload = validate_payload(row)
         if folder.exists() and any(folder.iterdir()) and not overwrite:
             raise FileExistsError(folder)
@@ -173,26 +174,28 @@ def run_csv_row(row, *, project_path, output_root, local_artifact_root=None, pro
         (folder/'geometry_tree.json').write_text(json.dumps(payload, indent=2), encoding='utf-8')
         if not dry_run:
             if local_artifact_root is None:
-                raise ValueError('Maid-local field retention directory is required')
+                raise ValueError('Maid-local export directory is required')
             local_case = Path(local_artifact_root) / common._case_directory_name(sid, id_width)
             if project is None:
                 notify('opening_project')
                 project = legacy_runner.cst_run_and_export_s11.open_cst_project(str(path))
                 opened = True
             notify('checking_propagation_infrastructure')
-            infrastructure = legacy_runner.inspect_propagation_infrastructure(project, command_timeout)
+            infrastructure = legacy_runner.inspect_propagation_infrastructure(
+                project, command_timeout, require_e_fields=export_e_fields)
             notify('clearing_results')
             legacy_runner.cst_run_and_export_s11.clear_results_on_project(project, timeout=command_timeout)
             notify('building_tree_pair')
             report = build_pair(project, payload, folder, command_timeout)
-            if legacy_runner.inspect_propagation_infrastructure(project, command_timeout) != infrastructure:
+            if legacy_runner.inspect_propagation_infrastructure(
+                    project, command_timeout, require_e_fields=export_e_fields) != infrastructure:
                 raise RuntimeError('Ports, monitors or solver changed')
             notify('solving')
             project.model3d.run_solver(timeout=None)
-            notify('exporting_s21_and_retaining_fields')
+            notify('exporting_s21_and_retaining_fields' if export_e_fields else 'exporting_s21')
             exported = legacy_runner.export_propagation_results.export_propagation_results(
                 path, local_case, excitation_port=1, overwrite=True,
-                timeout=float(command_timeout or 60), project=project)
+                timeout=float(command_timeout or 60), project=project, export_e_fields=export_e_fields)
             shutil.copy2(local_case/'S21_complex.csv', folder/'S21.csv')
             artifacts['s21'] = common._artifact_record(folder/'S21.csv', folder)
             report['e_field_monitor_count'] = exported.e_field_monitor_count
@@ -205,14 +208,17 @@ def run_csv_row(row, *, project_path, output_root, local_artifact_root=None, pro
                     'source_manufactured_copper_sha256': payload['manufactured_copper_sha256'],
                     'template_cst_sha256': row['template_cst_sha256'], 'geometry': report,
                     'infrastructure': infrastructure, 'artifacts': artifacts,
-                    'local_only': {'retained_on_maid': True, 'transferred_to_princess': False, 'directory': str(local_case)},
+                    'export_e_fields': export_e_fields,
+                    'local_only': {'retained_on_maid': export_e_fields and not dry_run,
+                                   'transferred_to_princess': False,
+                                   'directory': str(local_case/'e_field_native') if export_e_fields and not dry_run else None},
                     'tree_geometry_sha256': row['tree_geometry_sha256']}
         common._write_manifest(folder/'manifest.json', manifest)
         notify('completed')
         return common.CaseRunResult(case_id=sid, case_directory=folder, manifest_path=folder/'manifest.json',
             s11_path=None, farfield_source_path=None, dry_run=dry_run, elapsed_seconds=manifest['elapsed_seconds'],
             s21_path=None if dry_run else folder/'S21.csv', simulation_mode='propagation_s21',
-            local_e_field_directory=None if dry_run else local_case/'e_field_native')
+            local_e_field_directory=None if dry_run or not export_e_fields else local_case/'e_field_native')
     except Exception as exc:
         raise common.CaseRunError(sid, stage, str(exc)) from exc
     finally:

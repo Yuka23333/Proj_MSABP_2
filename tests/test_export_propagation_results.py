@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -8,6 +9,43 @@ from pathlib import Path
 import pytest
 
 from scripts.postprocessing import export_propagation_results as exporter
+
+
+@pytest.mark.parametrize('fields_enabled', [False, True])
+def test_optional_field_export(tmp_path, monkeypatch, fields_enabled):
+    project = tmp_path / 'solved.cst'
+    project.write_bytes(b'cst')
+    output = tmp_path / 'out'
+    def export_s21(_project, destination, **kwargs):
+        _write_valid_s21(destination)
+        return 2
+    def field_items(*args, **kwargs):
+        assert fields_enabled, 'S21-only mode must not query E-field results'
+        return [(4.0, 'field at 4 GHz')]
+    field = tmp_path / 'field.m3d'
+    metadata = tmp_path / 'field.rex'
+    field.write_bytes(b'field')
+    metadata.write_bytes(b'metadata')
+    monkeypatch.setattr(exporter, '_export_complex_s21_in_child', export_s21)
+    monkeypatch.setattr(exporter, '_field_tree_items', field_items)
+    monkeypatch.setattr(exporter, '_native_field_sources', lambda *args: (field, metadata))
+    # Omission keeps the historical E-field-enabled default.
+    kwargs = {} if fields_enabled else {'export_e_fields': False}
+    report = exporter.export_propagation_results(project, output, **kwargs)
+    assert report.s21_sample_count == 2
+    assert report.e_field_monitor_count == int(fields_enabled)
+    assert len(report.files) == (3 if fields_enabled else 1)
+    assert (output / 'e_field_native').exists() == fields_enabled
+    assert json.loads((output / 'export_manifest.json').read_text())['export_e_fields'] == fields_enabled
+
+
+def test_s21_only_rejects_explicit_field_frequencies(tmp_path):
+    project = tmp_path / 'solved.cst'
+    project.write_bytes(b'cst')
+    with pytest.raises(ValueError, match='requires export_e_fields'):
+        exporter.export_propagation_results(project, tmp_path / 'out',
+                                            export_e_fields=False, field_frequencies_ghz=[4])
+    assert exporter.parse_args(['--no-e-fields']).no_e_fields
 
 
 def _write_valid_s21(path: Path) -> None:
@@ -84,4 +122,3 @@ def test_s21_child_failure_is_reported_without_importing_results_in_parent(
             overwrite=False,
             timeout=60.0,
         )
-
