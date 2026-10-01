@@ -42,7 +42,7 @@
       "launch_mode": "local",
       "ssh_target": null,
       "repo_root": "D:\\Academic\\Proj_MSABP_2",
-      "python_path": "C:\\Users\\David\\.conda\\envs\\cstpy\\python.exe",
+      "python_path": "C:\\Users\\David\\.conda\\envs\\maid\\python.exe",
       "scheduled_task_name": null,
       "runtime_config_path": "D:\\Academic\\Proj_MSABP_2\\simulations\\runs\\active_maid_runtime.json",
       "ssh_port": 22,

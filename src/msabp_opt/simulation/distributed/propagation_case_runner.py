@@ -130,6 +130,18 @@ def run_csv_row(
 ) -> Any:
     """Execute one propagation row and return a ``CaseRunResult``."""
 
+    # Tree propagation is opt-in and preserves the legacy workflow unchanged.
+    if str(row.get("geometry_engine", "")).strip() == "saved_tree_pair_v1":
+        from . import propagation_case_runner_tree
+        return propagation_case_runner_tree.run_csv_row(
+            row, project_path=project_path, output_root=output_root,
+            local_artifact_root=local_artifact_root, project=project, case_id=case_id,
+            id_width=id_width, coordinate_quantum_mm=coordinate_quantum_mm,
+            command_timeout=command_timeout, overwrite=overwrite,
+            save_project_after_case=save_project_after_case, dry_run=dry_run,
+            stage_callback=stage_callback,
+        )
+
     # Local import avoids a module cycle while sharing the established manifest
     # and result protocol with the ordinary antenna-characterization runner.
     from . import case_runner
