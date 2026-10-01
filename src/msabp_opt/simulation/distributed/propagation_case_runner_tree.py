@@ -26,6 +26,8 @@ PREFIX = 'MSABP_TREE_PROP::'
 OWNER = 'msabp_tree_pair'
 CURVES = 'msabp_tree_pair_curves'
 OFFSET_MM = 300.0
+PHANTOM_SOLID = 'component1:solid1'
+PHANTOM_MATERIAL = 'Kevin'
 
 
 def digest(value):
@@ -102,6 +104,30 @@ End With'''))
     return steps, expected
 
 
+def infrastructure_check_vba():
+    """Read-only check; the provisioned phantom shares the legacy component.
+
+    Exempt only the exact solid AND expected material, not the whole component
+    or every object using Kevin. Never delete unfamiliar template solids.
+    """
+    return f'''Sub Main()
+Dim i As Long, n As String, hasKevin As Boolean
+hasKevin = False
+For i = 0 To Solid.GetNumberOfShapes()
+    n = Solid.GetNameOfShapeFromIndex(i)
+    If n <> "" Then
+        If n = "{PHANTOM_SOLID}" Then
+            If Solid.GetMaterialNameForShape(n) <> "{PHANTOM_MATERIAL}" Then Err.Raise vbObjectError + 2103, , "Unexpected phantom material: " & n
+            hasKevin = True
+        Else
+            If Left(n, Len("{OWNER}:")) = "{OWNER}:" Or Left(n, Len("component1")) = "component1" Or Left(n, Len("msabp_tree:")) = "msabp_tree:" Then Err.Raise vbObjectError + 2101, , "Unowned old antenna geometry: " & n
+        End If
+    End If
+Next i
+If Not hasKevin Then Err.Raise vbObjectError + 2102, , "Template has no expected Kevin phantom solid: {PHANTOM_SOLID}"
+End Sub'''
+
+
 def build_pair(project, payload, directory, timeout):
     model = project.model3d
     history = model._GetHistory()['list']
@@ -117,18 +143,7 @@ def build_pair(project, payload, directory, timeout):
     if identity(baseline) != identity(history[:first]) or any(e['error'] for e in baseline):
         raise RuntimeError('Template history changed during reset')
     # Query only: no infrastructure mutation via execute_vba_code.
-    project.schematic.execute_vba_code(f'''Sub Main()
-Dim i As Long, n As String, hasKevin As Boolean
-hasKevin = False
-For i = 0 To Solid.GetNumberOfShapes()
-    n = Solid.GetNameOfShapeFromIndex(i)
-    If n <> "" Then
-        If Left(n, {len(OWNER)+1}) = "{OWNER}:" Or Left(n, 10) = "component1" Or Left(n, 11) = "msabp_tree:" Then Err.Raise vbObjectError + 2101, , "Unowned old antenna geometry: " & n
-        If Solid.GetMaterialNameForShape(n) = "Kevin" Then hasKevin = True
-    End If
-Next i
-If Not hasKevin Then Err.Raise vbObjectError + 2102, , "Template has no Kevin phantom solid"
-End Sub''', timeout=timeout)
+    project.schematic.execute_vba_code(infrastructure_check_vba(), timeout=timeout)
     steps, expected = history_steps(payload['geometry'])
     for name, code in steps:
         model.add_to_history(PREFIX + name, code, timeout=timeout)

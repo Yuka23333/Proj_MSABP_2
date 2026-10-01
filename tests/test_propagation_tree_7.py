@@ -65,6 +65,43 @@ def test_refuse_foreign_history_after_owned_suffix(tmp_path):
         runner.build_pair(SimpleNamespace(model3d=model), {}, tmp_path, 15)
 
 
+def test_phantom_exception_is_exact_and_material_checked_before_legacy_guard():
+    code = runner.infrastructure_check_vba()
+    phantom_branch, remainder = code.split('        Else\n', 1)
+    assert 'If n = "component1:solid1" Then' in phantom_branch
+    assert 'If Solid.GetMaterialNameForShape(n) <> "Kevin" Then Err.Raise' in phantom_branch
+    assert phantom_branch.index('Unexpected phantom material') < phantom_branch.index('hasKevin = True')
+    assert 'Unowned old antenna geometry' not in phantom_branch
+    assert 'hasKevin = True' not in remainder
+    # Residual legacy antennas (including the second component) stay blocked;
+    # use string lengths rather than brittle hand-counted prefix lengths.
+    for prefix in ('component1', 'msabp_tree:', runner.OWNER + ':'):
+        assert f'Left(n, Len("{prefix}")) = "{prefix}"' in remainder
+    assert 'If Not hasKevin Then Err.Raise' in remainder
+    for forbidden in ('Solid.Delete', 'Solid.ChangeMaterial', 'Component.Delete', '.Create'):
+        assert forbidden not in code
+
+
+def test_build_pair_uses_phantom_aware_query_before_adding_geometry(tmp_path, monkeypatch):
+    baseline = [{'name': 'phantom and connectors', 'contents': 'baseline', 'error': False}]
+    history = list(baseline)
+    events = []
+    def add(name, code, **kwargs):
+        events.append('add')
+        history.append({'name': name, 'contents': code, 'error': False})
+    def query(code, **kwargs):
+        events.append('query')
+        if len(events) == 1:
+            assert code == runner.infrastructure_check_vba()
+    model = SimpleNamespace(_GetHistory=lambda: {'list': list(history)}, add_to_history=add)
+    project = SimpleNamespace(model3d=model, schematic=SimpleNamespace(execute_vba_code=query))
+    monkeypatch.setattr(runner, 'history_steps', lambda geometry: ([('test', 'test geometry')], []))
+    report = runner.build_pair(project, {'geometry': {}}, tmp_path, 15)
+    assert events == ['query', 'add', 'query']
+    assert history[0] == baseline[0]
+    assert report['phantom_material'] == 'Kevin'
+
+
 def test_inplace_deployment_never_copies_model(tmp_path):
     runtime = object.__new__(launch.InPlacePrincessRuntime)
     runtime.preparation = SimpleNamespace(paths=SimpleNamespace(run_id='test-run', worklist_csv=tmp_path/'samples.csv'))
@@ -88,7 +125,7 @@ def test_current_config_selects_all_three_and_inplace():
     assert config['candidate_ranks'] == [1, 2, 3, 8, 9, 11, 28]
     assert config['project_mode'] == 'in_place'
     assert config['export_e_fields'] is False
-    assert config['run_id'].endswith('-002')
+    assert config['run_id'].endswith('-003')
 
 
 @pytest.mark.parametrize('fields_enabled', [False, True])
