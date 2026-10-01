@@ -87,3 +87,31 @@ def test_current_config_selects_all_three_and_inplace():
     assert config['devices'] == ['local', 'coconutg2', 'convallariag5']
     assert config['candidate_ranks'] == [1, 2, 3, 8, 9, 11, 28]
     assert config['project_mode'] == 'in_place'
+
+
+def test_preflight_command_fits_windows_limit(monkeypatch):
+    import base64
+    config = launch.common.read_json(launch.CONFIG)
+    bundle = {'files': [], 'directories': []}
+    manifest = {'config': config, 'bundle': bundle,
+                'sources': {p: 'a'*64 for p in launch.SOURCE_FILES}}
+    device = SimpleNamespace(repo_root='D:\\Academic\\Proj_MSABP_2', id='coconutg2',
+                             launch_mode=launch.LaunchMode.BELL)
+    def remote(_device, script, **kwargs):
+        assert len(base64.b64encode(script.encode('utf-16-le'))) < 7500
+        return SimpleNamespace(stdout=json.dumps(bundle))
+    monkeypatch.setattr(launch, 'run_remote_powershell', remote)
+    launch.preflight([device], manifest)
+
+
+def test_inplace_ignores_results_but_not_model_inputs():
+    before = {'files': [{'path': 'project.cst', 'sha256': 'a'},
+                        {'path': 'project/Model/design.mod', 'sha256': 'b'},
+                        {'path': 'project/Result/Storage.sdb', 'sha256': 'c'}],
+              'directories': ['project', 'project/Model', 'project/Result']}
+    after = json.loads(json.dumps(before))
+    after['files'][-1]['sha256'] = 'result_changed'
+    assert launch.comparable_bundle(before, in_place=True) == launch.comparable_bundle(after, in_place=True)
+    assert launch.comparable_bundle(before, in_place=False) != launch.comparable_bundle(after, in_place=False)
+    after['files'][1]['sha256'] = 'input_changed'
+    assert launch.comparable_bundle(before, in_place=True) != launch.comparable_bundle(after, in_place=True)

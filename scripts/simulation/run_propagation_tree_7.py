@@ -115,6 +115,15 @@ def prepare(config):
     return folder, manifest, rows
 
 
+def comparable_bundle(bundle, *, in_place):
+    """Results and scratch files are not immutable inputs of an in-place solve."""
+    def keep(path):
+        parts = path.replace('\\', '/').split('/')
+        return not (in_place and len(parts) > 1 and parts[1].casefold() in {'result', 'temp'})
+    return ({e['path']: e['sha256'] for e in bundle['files'] if keep(e['path'])},
+            sorted(p for p in bundle['directories'] if keep(p)))
+
+
 def preflight(devices, manifest, *, check_bundle=True):
     """Read-only source/template comparison on all selected hosts."""
     for device in devices:
@@ -122,15 +131,17 @@ def preflight(devices, manifest, *, check_bundle=True):
             project = ROOT/manifest['config']['template']
             if not project.is_file() or not project.with_suffix('').is_dir():
                 raise FileNotFoundError('Missing local propagation project or sidecar')
-            if check_bundle and bundle_manifest(project) != manifest['bundle']:
+            if check_bundle and comparable_bundle(bundle_manifest(project), in_place=manifest['config']['project_mode']=='in_place') != comparable_bundle(manifest['bundle'], in_place=manifest['config']['project_mode']=='in_place'):
                 raise ValueError('Local initial template bundle changed')
             continue
-        checks = []
-        for relative, sha in manifest['sources'].items():
-            path = str(PureWindowsPath(device.repo_root)/relative)
-            checks += [f"$text=[IO.File]::ReadAllText({_ps_literal(path)}).Replace(\"`r`n\",\"`n\")",
-                       '$h=([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($text)))).Replace("-", "").ToLowerInvariant()',
-                       f"if ($h -ne '{sha}') {{ throw 'Code mismatch: {relative}; push/pull required' }}"]
+        # Keep EncodedCommand below the remote Windows command-line limit.
+        checks = [f'$root={_ps_literal(device.repo_root)}',
+                  f'$expected={_ps_literal(json.dumps(manifest["sources"], separators=(",", ":")))} | ConvertFrom-Json',
+                  'foreach ($entry in $expected.PSObject.Properties) {',
+                  '$text=[IO.File]::ReadAllText((Join-Path $root $entry.Name)).Replace("`r`n","`n")',
+                  '$h=([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($text)))).Replace("-", "").ToLowerInvariant()',
+                  'if ($h -ne $entry.Value) { throw ("Code mismatch; push/pull required: " + $entry.Name) }',
+                  '}']
         models = PureWindowsPath(device.repo_root)/PureWindowsPath(manifest['config']['template']).parent
         if not check_bundle:
             project = models/'msa-bp-propagation.cst'
@@ -148,10 +159,10 @@ def preflight(devices, manifest, *, check_bundle=True):
                    "@{files=$entries;directories=@($dirs | ForEach-Object { $_.FullName.Substring($models.Length+1).Replace('\\','/') })} | ConvertTo-Json -Depth 4 -Compress"]
         result = run_remote_powershell(device, "$ErrorActionPreference='Stop'\n$ProgressPreference='SilentlyContinue'\n"+'\n'.join(checks), action='tree propagation preflight', timeout=90)
         actual = json.loads(result.stdout.strip())
-        if ({e['path']: e['sha256'] for e in actual['files']} != {e['path']: e['sha256'] for e in manifest['bundle']['files']}
-                or sorted(actual['directories']) != sorted(manifest['bundle']['directories'])):
+        in_place = manifest['config']['project_mode'] == 'in_place'
+        if comparable_bundle(actual, in_place=in_place) != comparable_bundle(manifest['bundle'], in_place=in_place):
             raise ValueError(f'{device.id}: template bundle differs from the frozen campaign')
-        print(device.id, 'PREFLIGHT PASS (source + full template)', flush=True)
+        print(device.id, 'PREFLIGHT PASS (code + model inputs; Result/Temp excluded)' if in_place else 'PREFLIGHT PASS (code + full template)', flush=True)
 
 
 def bundle_copier(folder, manifest):
