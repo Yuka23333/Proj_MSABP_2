@@ -1,2 +1,12 @@
 # CST projects are compressed binary containers; never attempt text diffs.
 *.cst binary
+
+# Shore release manifests pin source files byte-for-byte.  Keep canonical
+# source and JSON bytes stable even when Git for Windows has autocrlf enabled.
+*.py text eol=lf
+*.json text eol=lf
+
+# The deployed v11 release pins this historical module in its original CRLF
+# byte representation.  Preserve that exact blob until a new release is cut.
+src/msabp_opt/simulation/distributed/runtime.py -text !eol -whitespace
+src/msabp_opt/simulation/distributed/control_worker.py -whitespace

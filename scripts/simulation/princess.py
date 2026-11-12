@@ -333,6 +333,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "start":
+            from msabp_opt.simulation.distributed.control_policy import reject_external_execution
+            reject_external_execution("legacy Princess CLI start; use validate_shore_adapter.py")
             return _run_start(args)
         if args.command == "status":
             print(

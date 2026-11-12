@@ -70,6 +70,8 @@ class PrincessHttpServer(ThreadingHTTPServer):
         artifact_handler: ArtifactHandler,
         json_limit_bytes: int = DEFAULT_JSON_LIMIT_BYTES,
         artifact_limit_bytes: int = DEFAULT_ARTIFACT_LIMIT_BYTES,
+        artifact_begin: Callable[..., Any] | None = None,
+        artifact_end: Callable[..., Any] | None = None,
     ) -> None:
         if not token:
             raise ValueError("Princess API token must not be empty")
@@ -80,6 +82,8 @@ class PrincessHttpServer(ThreadingHTTPServer):
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.message_handler = message_handler
         self.artifact_handler = artifact_handler
+        self.artifact_begin = artifact_begin
+        self.artifact_end = artifact_end
         self.json_limit_bytes = int(json_limit_bytes)
         self.artifact_limit_bytes = int(artifact_limit_bytes)
         super().__init__(server_address, PrincessRequestHandler)
@@ -182,15 +186,16 @@ class PrincessRequestHandler(BaseHTTPRequestHandler):
             "worker id",
         )
         length = self._content_length(maximum=self.server.artifact_limit_bytes)
-
-        descriptor, temp_name = tempfile.mkstemp(
-            prefix=f"{attempt_id}.",
-            suffix=".part",
-            dir=self.server.upload_dir,
-        )
+        ticket = (self.server.artifact_begin(attempt_id, worker_id, lease_token)
+                  if self.server.artifact_begin is not None else None)
         digest = hashlib.sha256()
         remaining = length
+        temp_name = None
+        stream_finished = False
         try:
+            descriptor, temp_name = tempfile.mkstemp(
+                prefix=f"{attempt_id}.", suffix=".part", dir=self.server.upload_dir,
+            )
             with os.fdopen(descriptor, "wb") as handle:
                 while remaining:
                     chunk = self.rfile.read(min(COPY_CHUNK_BYTES, remaining))
@@ -202,6 +207,8 @@ class PrincessRequestHandler(BaseHTTPRequestHandler):
                     handle.write(chunk)
                     digest.update(chunk)
                     remaining -= len(chunk)
+                handle.flush()
+                os.fsync(handle.fileno())
             temp_path = Path(temp_name)
             response = dict(
                 self.server.artifact_handler(
@@ -213,9 +220,15 @@ class PrincessRequestHandler(BaseHTTPRequestHandler):
                     length,
                 )
             )
+            stream_finished = True
         except Exception:
-            Path(temp_name).unlink(missing_ok=True)
+            if temp_name is not None:
+                Path(temp_name).unlink(missing_ok=True)
+            stream_finished = True  # No unaccounted .part survives successful cleanup.
             raise
+        finally:
+            if stream_finished and self.server.artifact_end is not None:
+                self.server.artifact_end(ticket)
         self._send_json(HTTPStatus.OK, response)
 
     def _send_error(self, status: int, message: str) -> None:

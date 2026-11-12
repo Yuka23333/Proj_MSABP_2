@@ -537,6 +537,8 @@ class MaidBellController:
         return runtime_path, request_id, signature
 
     def _wake(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        from .control_policy import reject_external_execution
+        reject_external_execution("Bell wake (adapter not enrolled)")
         runtime_path, request_id, signature = self._verify_control(
             request,
             expected_command="wake",
@@ -632,6 +634,8 @@ class MaidBellController:
         }
 
     def _launch(self, runtime_path: Path) -> MaidLaunchState:
+        from .control_policy import reject_external_execution
+        reject_external_execution("Bell process launch")
         if not self.config.python_path.is_file():
             raise BellError(f"Maid Python does not exist: {self.config.python_path}")
         if not self.config.maid_entrypoint.is_file():
@@ -827,6 +831,8 @@ class MaidBellClient:
         runtime_config_path: str,
         api_token: str,
     ) -> dict[str, Any]:
+        from .control_policy import reject_external_execution
+        reject_external_execution("Bell wake client")
         return self._request(
             _signed_wake_request(
                 device_id=device_id,

@@ -23,6 +23,7 @@ from typing import Any, Callable
 from . import case_runner
 from .http_api import ApiError, PrincessClient
 from .protocol import make_message, validate_message
+from .control_policy import CONTROL_MODES, control_mode
 
 
 RUNTIME_SCHEMA_VERSION = 1
@@ -61,6 +62,7 @@ class MaidRuntimeConfig:
     artifact_commit_deadline_seconds: float = (
         DEFAULT_ARTIFACT_COMMIT_DEADLINE_SECONDS
     )
+    protocol_mode: str = "legacy"
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "MaidRuntimeConfig":
@@ -85,6 +87,7 @@ class MaidRuntimeConfig:
             "hello_timeout_seconds",
             "artifact_timeout_seconds",
             "artifact_commit_deadline_seconds",
+            "protocol_mode",
         }
         unknown = set(raw) - allowed
         if unknown:
@@ -127,6 +130,9 @@ class MaidRuntimeConfig:
 
         run_id = _validated_identifier(required_text("run_id"), "run_id")
         worker_id = _validated_identifier(required_text("worker_id"), "worker_id")
+        protocol_mode = raw.get("protocol_mode", "legacy")
+        if protocol_mode not in {"legacy", *CONTROL_MODES}:
+            raise MaidConfigError("protocol_mode must be legacy or an explicit Shore mode")
         return cls(
             run_id=run_id,
             worker_id=worker_id,
@@ -155,6 +161,7 @@ class MaidRuntimeConfig:
                 "artifact_commit_deadline_seconds",
                 DEFAULT_ARTIFACT_COMMIT_DEADLINE_SECONDS,
             ),
+            protocol_mode=protocol_mode,
         )
 
     @classmethod
@@ -217,6 +224,12 @@ def doctor(
 
     if require_cst is None:
         require_cst = not config.dry_run
+    if require_cst:
+        from .control_policy import reject_external_execution
+
+        reject_external_execution("CST doctor import")
+        if config.protocol_mode in CONTROL_MODES:
+            raise MaidConfigError("Shore fake-worker doctor refuses CST checks")
     if require_cst and sys.version_info[:2] != (3, 11):
         raise RuntimeError(
             "CST Studio Suite 2025 Maid requires Python 3.11; "
@@ -255,6 +268,9 @@ class OwnedCstSession:
         self.project: Any | None = None
 
     def open(self) -> Any:
+        from .control_policy import reject_external_execution
+
+        reject_external_execution("CST session open")
         if self.project is not None:
             return self.project
         import cst.interface
@@ -337,8 +353,26 @@ class Maid:
         artifact_client: PrincessClient | Any | None = None,
         session: OwnedCstSession | Any | None = None,
         sleeper: Callable[[float], None] = time.sleep,
+        control_worker: Any | None = None,
+        run_csv_row: Callable[..., Any] | None = None,
     ) -> None:
         self.config = config
+        self.control_worker = control_worker
+        controlled = config.protocol_mode in CONTROL_MODES
+        selected_mode = control_mode()
+        if selected_mode and config.protocol_mode != selected_mode:
+            raise MaidConfigError("Controlled environment refuses legacy or different Shore mode")
+        if controlled and (
+            control_worker is None or run_csv_row is None
+            or run_csv_row is case_runner.run_csv_row
+            or session is None or isinstance(session, OwnedCstSession)
+        ):
+            raise MaidConfigError(
+                "Shore synthetic mode requires a Shore gate and explicitly injected fake executor/session"
+            )
+        if not controlled and control_worker is not None:
+            raise MaidConfigError("Shore control requires explicit synthetic protocol_mode")
+        self._run_csv_row = run_csv_row or case_runner.run_csv_row
         self.client = client or PrincessClient(config.princess_url, config.api_token)
         self.artifact_client = artifact_client or (
             self.client
@@ -376,9 +410,13 @@ class Maid:
                 run_id=self.config.run_id,
                 worker_id=self.config.worker_id,
                 payload=payload,
+                protocol_version=2 if self.control_worker is not None else 1,
             )
         )
-        return validate_message(response)
+        validated = validate_message(response)
+        if self.control_worker is not None and validated["protocol_version"] != 2:
+            raise MaidConfigError("Shore Maid refuses a protocol downgrade")
+        return validated
 
     @staticmethod
     def _is_transient_http_error(error: Exception) -> bool:
@@ -457,6 +495,7 @@ class Maid:
                     "pid": os.getpid(),
                     "csv_sha256": self.config.csv_sha256,
                     "dry_run": self.config.dry_run,
+                    "protocol_mode": self.config.protocol_mode,
                     "supported_simulation_modes": list(
                         case_runner.SUPPORTED_SIMULATION_MODES
                     ),
@@ -465,6 +504,18 @@ class Maid:
             )
             if hello["type"] != "welcome":
                 raise RuntimeError(f"Princess rejected Maid hello: {hello['type']}")
+
+            if self.control_worker is not None:
+                # A collector whose local completion already committed may
+                # now reply stop; replay our own durable terminal outbox first.
+                # STARTING/unknown execution is refused by pending_assignments.
+                for assignment in self.control_worker.pending_assignments():
+                    outcome = self._run_assignment(assignment)
+                    if outcome in {"failed", "not_started", "failed_unresolved", "completed_pending"}:
+                        self._log("Shore terminal outcome reconciled; stopping without automatic restart"
+                                  if outcome in {"failed", "not_started"}
+                                  else "Recovered Shore outbox remains unresolved")
+                        return 2
 
             while True:
                 response = self._send_with_retry(
@@ -476,6 +527,10 @@ class Maid:
                 if response_type == "stop":
                     self._log("Princess reports that the run is complete")
                     return 0
+                if response_type == "retry_paused":
+                    self._log(f"Princess paused controlled retries: {payload.get('reason')}; "
+                              f"cases={payload.get('cases', [])}")
+                    return 2
                 if response_type == "wait":
                     self._sleep(
                         float(
@@ -490,6 +545,11 @@ class Maid:
                     raise RuntimeError(f"unexpected Princess response: {response_type}")
 
                 outcome = self._run_assignment(payload)
+                if self.control_worker is not None and outcome in {"failed", "not_started", "failed_unresolved", "completed_pending"}:
+                    self._log("Shore terminal outcome reconciled; stopping without automatic restart"
+                              if outcome in {"failed", "not_started"}
+                              else "Shore work remains unresolved; explicit recovery required")
+                    return 2
                 if outcome == "restart":
                     self._log("five consecutive failures; shutting down for restart")
                     return UNHEALTHY_EXIT_CODE
@@ -522,13 +582,18 @@ class Maid:
                 f"expected {expected_row_sha256}, got {actual_row_sha256}"
             )
 
+        if self.control_worker is not None:
+            return self._run_controlled_assignment(assignment, row, actual_row_sha256)
+        if assignment.get("control_authority") is not None:
+            raise MaidConfigError("Legacy Maid refuses a Shore-controlled assignment")
+
         attempt_root = self.config.output_root / "attempts" / attempt_id
         attempt_root.mkdir(parents=True, exist_ok=True)
         with _Heartbeat(self, assignment) as heartbeat:
             try:
                 heartbeat.set_stage("opening_project")
                 project = None if self.config.dry_run else self.session.open()
-                result = case_runner.run_csv_row(
+                result = self._run_csv_row(
                     row,
                     project_path=self.config.project_path,
                     output_root=attempt_root,
@@ -604,6 +669,154 @@ class Maid:
         self.failed_case_ids.clear()
         self._log(f"case {case_id} completed")
         return "completed"
+
+    def _run_controlled_assignment(
+        self, assignment: Mapping[str, Any], row: Mapping[str, Any], row_sha256: str,
+    ) -> str:
+        """Synthetic execution through Maid's normal entry with durable replay."""
+        gate = self.control_worker
+        attempt_id = str(assignment["attempt_id"])
+        permit = gate.accept(assignment, run_id=self.config.run_id, worker_id=self.config.worker_id,
+                             row_sha256=row_sha256, csv_sha256=self.config.csv_sha256)
+        if gate.is_resolved(attempt_id):
+            return gate.result(attempt_id)["receipt"]["outcome"]
+        durable_result = gate.result(attempt_id)
+        attempt_root = self.config.output_root / "attempts" / attempt_id
+        attempt_root.mkdir(parents=True, exist_ok=True)
+        with _Heartbeat(self, assignment) as heartbeat:
+            if durable_result is None:
+                # Persist STARTING before even opening the injected fake session.
+                gate.start(attempt_id)
+                try:
+                    project = None if self.config.dry_run else self.session.open()
+                    result = self._run_csv_row(
+                        row, project_path=self.config.project_path, output_root=attempt_root,
+                        project=project, case_id=str(assignment["case_id"]),
+                        coordinate_quantum_mm=self.config.coordinate_quantum_mm,
+                        allow_disconnected_conductor=self.config.allow_disconnected_conductor,
+                        command_timeout=self.config.command_timeout_seconds, overwrite=False,
+                        save_project_after_case=False, dry_run=self.config.dry_run,
+                        stage_callback=heartbeat.set_stage,
+                        local_artifact_root=self.config.output_root / "local_only",
+                    )
+                except Exception as exc:
+                    # A returned synthetic exception is a confirmed termination;
+                    # BaseException/process death remains STARTING and unresolved.
+                    durable_result = gate.save_result(
+                        attempt_id, attempt_root / "failure", outcome="failed",
+                        failure_code=type(exc).__name__, error_message=str(exc),
+                    )
+                else:
+                    durable_result = gate.save_result(
+                        attempt_id, result.case_directory, outcome="completed",
+                        manifest_path=result.manifest_path,
+                    )
+            durable_result = gate.checked_result(attempt_id)
+            self._report_control_outbox(attempt_id)
+            if durable_result["receipt"]["outcome"] != "completed":
+                return self._deliver_control_terminal(assignment, durable_result, permit, attempt_root)
+            delivery = gate.delivery(attempt_id)
+            if delivery is None:
+                archive = self._archive_result(attempt_id, Path(durable_result["root"]))
+                with archive.open("r+b") as stream:
+                    os.fsync(stream.fileno())
+                delivery = {
+                    "archive": str(archive),
+                    "payload": {
+                        "attempt_id": attempt_id, "lease_token": str(assignment["lease_token"]),
+                        "archive_sha256": sha256_file(archive),
+                        "manifest_sha256": sha256_file(durable_result["manifest_path"]),
+                        "control_authority": {
+                            "permit_id": durable_result["receipt"]["permit_id"],
+                            "evidence": durable_result["evidence"],
+                            "aliases": durable_result["aliases"],
+                            "evidence_sha256": durable_result["receipt"]["evidence_sha256"],
+                            "outcome": "completed",
+                        },
+                    },
+                }
+                gate.delivery(attempt_id, delivery)
+            archive = Path(delivery["archive"])
+            if sha256_file(archive) != delivery["payload"]["archive_sha256"]:
+                raise ValueError("Durable Shore archive bytes changed")
+            commit_deadline = time.monotonic() + self.config.artifact_commit_deadline_seconds
+            heartbeat.set_stage("uploading_results")
+            if not gate.uploaded(attempt_id):
+                upload = self._retry_transient(
+                    lambda: self.artifact_client.upload_artifact(
+                        attempt_id, self.config.worker_id, str(assignment["lease_token"]), archive),
+                    label="artifact upload", deadline_at=commit_deadline,
+                )
+                if upload.get("sha256") != delivery["payload"]["archive_sha256"]:
+                    raise RuntimeError("Princess artifact SHA-256 acknowledgement mismatch")
+                gate.uploaded(attempt_id, upload["sha256"])
+            heartbeat.set_stage("committing_results")
+            response = self._send_with_retry(
+                "complete", delivery["payload"], deadline_at=commit_deadline, artifact_channel=True,
+            )
+            if response["type"] != "completed_ack":
+                raise RuntimeError("Princess did not acknowledge controlled completion")
+            self._report_control_outbox(attempt_id)
+            try:
+                resolved = gate.resolved(attempt_id)
+            except Exception as exc:
+                if not self._is_control_network_error(exc):
+                    raise
+                self._log(f"Shore resolution unavailable; retaining outbox: {exc}")
+                resolved = False
+            if resolved:
+                self._cleanup_completed_attempt(attempt_root, archive)
+                self.failed_case_ids.clear()
+                return "completed"
+            self._log("Collector replied, but Shore is not RESOLVED; retaining all result bytes")
+            return "completed_pending"
+
+    def _deliver_control_terminal(self, assignment, result, permit, attempt_root) -> str:
+        from .control_failure import terminal_payload
+
+        gate, attempt_id = self.control_worker, str(assignment["attempt_id"])
+        delivery = gate.delivery(attempt_id)
+        if delivery is None:
+            delivery = {"terminal_payload": terminal_payload(dict(assignment), result, permit)}
+            gate.delivery(attempt_id, delivery)
+        elif "terminal_payload" not in delivery:
+            raise ValueError("Terminal outcome conflicts with a completed delivery")
+        response = self._send_with_retry(
+            "control_terminal", delivery["terminal_payload"], artifact_channel=True,
+            deadline_seconds=self.config.artifact_commit_deadline_seconds,
+        )
+        if (response["type"] != "terminal_ack"
+                or response["payload"].get("outcome") != result["receipt"]["outcome"]):
+            raise ValueError("Collector did not acknowledge the same terminal outcome")
+        self._report_control_outbox(attempt_id)
+        try:
+            resolved = gate.resolved(attempt_id)
+        except Exception as exc:
+            if not self._is_control_network_error(exc):
+                raise
+            self._log(f"Shore terminal resolution pending; retaining record: {exc}")
+            resolved = False
+        if not resolved:
+            return "failed_unresolved"
+        # The durable inbox/tombstone remains. Only disposable per-attempt files
+        # are cleaned, and only after our own signed RESOLVED verification.
+        archive = self.config.output_root / "outbox" / f"{attempt_id}.zip"
+        self._cleanup_completed_attempt(attempt_root, archive)
+        return result["receipt"]["outcome"]
+
+    def _report_control_outbox(self, attempt_id: str) -> None:
+        try:
+            self.control_worker.report(attempt_id)
+        except Exception as exc:
+            if not self._is_control_network_error(exc):
+                raise
+            self._log(f"Shore worker report pending in durable outbox: {exc}")
+
+    @staticmethod
+    def _is_control_network_error(error: Exception) -> bool:
+        # Shore's RPC transport wraps network/invalid transport responses as
+        # AuthorityError('RPC'); retaining bytes never treats that as authority.
+        return isinstance(error, (ConnectionError, TimeoutError, OSError)) or getattr(error, "code", None) == "RPC"
 
     def _cleanup_completed_attempt(self, attempt_root: Path, archive: Path) -> None:
         try:

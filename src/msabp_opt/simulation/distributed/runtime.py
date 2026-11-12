@@ -13,6 +13,7 @@ import math
 import re
 import secrets
 import shutil
+import sqlite3
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -533,8 +534,22 @@ class PrincessRuntime:
         doctor: Callable[..., DoctorReport] = doctor_device,
         launcher: Callable[..., LaunchReceipt] = launch_maid,
         server_factory: Callable[..., PrincessHttpServer] = PrincessHttpServer,
+        control_authority: Any = None,
     ) -> None:
         self.preparation = preparation
+        self.control_authority = control_authority
+        from .control_policy import controlled_mode
+        if controlled_mode() and control_authority is None:
+            raise PrincessRuntimeError("Shore lab requires an explicit control_authority")
+        if control_authority is None and preparation.paths.database.is_file():
+            with sqlite3.connect(preparation.paths.database.as_uri() + "?mode=ro", uri=True) as db:
+                has_markers = db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='control_run_bindings'"
+                ).fetchone()
+                if has_markers and db.execute(
+                    "SELECT 1 FROM control_run_bindings WHERE run_id=?", (preparation.paths.run_id,)
+                ).fetchone():
+                    raise PrincessRuntimeError("Shore controlled run requires its authority; legacy runtime fallback is forbidden")
         self.registry = registry
         self.devices = tuple(devices)
         self.project_template = Path(project_template).expanduser().resolve()
@@ -628,7 +643,9 @@ class PrincessRuntime:
         if self._server is not None:
             return
         paths = self.preparation.paths
-        self._state = PrincessState(paths.database)
+        self._state = PrincessState(paths.database, control_authority=self.control_authority)
+        if self.control_authority is not None:
+            self._state.bind_control_run(paths.run_id)
         self._coordinator = PrincessCoordinator(
             self._state,
             run_id=paths.run_id,
@@ -642,12 +659,17 @@ class PrincessRuntime:
                 self.preparation.paths.worklist_csv
             ),
         )
+        if self.control_authority is not None:
+            self.control_authority.bind_run_state(paths.run_id, paths.database)
         self._server = self._server_factory(
             (self.registry.bind_host, self.registry.port),
             token=self.preparation.api_token,
             upload_dir=paths.upload_root,
             message_handler=self._coordinator.handle_message,
             artifact_handler=self._coordinator.handle_artifact,
+            **({"artifact_begin": self._coordinator.begin_artifact_upload,
+                "artifact_end": self._coordinator.end_artifact_upload}
+               if self.control_authority is not None else {}),
         )
         self._server_thread = threading.Thread(
             target=self._server.serve_forever,
@@ -701,6 +723,8 @@ class PrincessRuntime:
         launch_generation: str | None = None,
         force_project: bool = False,
     ) -> tuple[DeviceRunPaths, Path]:
+        if self.control_authority is not None:
+            raise PrincessRuntimeError("Shore fake lab: deployment/wake is explicitly disabled")
         paths = device_run_paths(
             device,
             self.preparation.paths.run_id,
@@ -891,6 +915,8 @@ class PrincessRuntime:
         *,
         resume_grace_seconds: float | None = None,
     ) -> tuple[DeviceDeployment, ...]:
+        if self.control_authority is not None:
+            raise PrincessRuntimeError("Shore fake lab uses injected Maids; real launch/recovery is disabled")
         if self._server is None:
             raise PrincessRuntimeError("start_server() must run before Maid launch")
         progress = self.state.progress(self.preparation.paths.run_id)
@@ -1068,6 +1094,8 @@ class PrincessRuntime:
                 self._recovery_due[device_id] = now
 
     def _schedule_restarts(self, now: float) -> None:
+        if self.control_authority is not None:
+            return  # Never reinterpret drain/unknown execution as a restart request.
         run_id = self.preparation.paths.run_id
         for device in self.devices:
             if device.id in self._disabled_for_run:
@@ -1141,6 +1169,8 @@ class PrincessRuntime:
         now: float,
         progress: Mapping[str, int | bool],
     ) -> None:
+        if self.control_authority is not None:
+            return
         if int(progress["pending"]) <= 0:
             return
         run_id = self.preparation.paths.run_id
@@ -1245,8 +1275,16 @@ class PrincessRuntime:
         stop_event = stop_event or threading.Event()
         last_snapshot: dict[str, int | bool] | None = None
         terminal_since: float | None = None
+        last_retry_pauses: list[dict[str, Any]] = []
         run_id = self.preparation.paths.run_id
         while not stop_event.is_set():
+            if self.control_authority is not None:
+                try:
+                    self.control_authority.poll_control()
+                except Exception as exc:
+                    # Loss of the controller proof stops dispatch, not the
+                    # HTTP collector or already accepted execution.
+                    print(f"[Princess] Shore draining: {type(exc).__name__}: {exc}", flush=True)
             stop_reason = self.state.stop_request(run_id)
             if stop_reason is not None:
                 progress = self.state.progress(run_id).as_dict()
@@ -1270,6 +1308,13 @@ class PrincessRuntime:
             self._refresh_pending_launches(now)
             self._schedule_restarts(now)
             progress = self.state.progress(run_id).as_dict()
+            if self.control_authority is not None:
+                paused = self.state.control_retry_pauses(run_id, max_attempts=self.max_attempts)
+                if paused != last_retry_pauses:
+                    print(f"[Princess] Shore retry_paused={paused}; explicit retry grant required when nonempty", flush=True)
+                    last_retry_pauses = paused
+                if paused:
+                    progress["retry_paused"] = len(paused)
             self._schedule_recoveries(now, progress)
             if progress != last_snapshot:
                 finished = int(progress["finished"])

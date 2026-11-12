@@ -54,6 +54,10 @@ class WorkerUnavailableError(StateError):
     """Raised when an unhealthy, quarantined, or stopped Maid requests work."""
 
 
+class ControlAuthorityError(StateError):
+    """A durably Shore-bound run cannot use an uncontrolled state transition."""
+
+
 @dataclass(frozen=True)
 class FrozenCsvRow:
     """Stable identity for one row in a frozen sampling CSV."""
@@ -89,6 +93,7 @@ class ClaimedTask:
     attempt_number: int
     lease_token: str
     lease_expires_at: float
+    control_authority: dict[str, Any] | None = None
 
     @property
     def csv_row_index(self) -> int:
@@ -352,12 +357,19 @@ def freeze_csv(
 class PrincessState:
     """SQLite-backed run, worker, task, attempt, and event ledger."""
 
-    def __init__(self, database_path: str | Path, *, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        timeout: float = 30.0,
+        control_authority: Any | None = None,
+    ) -> None:
         if timeout <= 0:
             raise ValueError("SQLite timeout must be positive")
         self.path = Path(database_path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self.control_authority = control_authority
         self._connection = sqlite3.connect(
             self.path,
             timeout=timeout,
@@ -368,7 +380,9 @@ class PrincessState:
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute(f"PRAGMA busy_timeout = {int(timeout * 1000)}")
         self._connection.execute("PRAGMA journal_mode = WAL")
-        self._connection.execute("PRAGMA synchronous = NORMAL")
+        # Dispatch intents must survive power loss before an external authority
+        # can issue a permit; use FULL for both legacy and controlled stores.
+        self._connection.execute("PRAGMA synchronous = FULL")
         self._create_schema()
 
     def __enter__(self) -> PrincessState:
@@ -499,6 +513,53 @@ class PrincessState:
                 FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS control_run_bindings (
+                run_id TEXT PRIMARY KEY,
+                binding_json TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES runs(run_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS control_dispatch_intents (
+                operation_id TEXT PRIMARY KEY,
+                attempt_id TEXT NOT NULL UNIQUE,
+                run_id TEXT NOT NULL,
+                case_id TEXT NOT NULL,
+                worker_id TEXT NOT NULL,
+                attempt_number INTEGER NOT NULL,
+                lease_token TEXT NOT NULL,
+                intent_json TEXT NOT NULL,
+                descriptor_json TEXT NOT NULL,
+                permit_json TEXT,
+                completion_evidence_sha256 TEXT,
+                unissued_proof_json TEXT,
+                state TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                FOREIGN KEY (run_id, case_id)
+                    REFERENCES tasks(run_id, case_id) ON DELETE CASCADE,
+                FOREIGN KEY (run_id, worker_id)
+                    REFERENCES workers(run_id, worker_id) ON DELETE CASCADE
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_control_unresolved_task
+                ON control_dispatch_intents(run_id, case_id)
+                WHERE state NOT IN ('settled', 'cancelled_unissued');
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_control_unresolved_worker
+                ON control_dispatch_intents(run_id, worker_id)
+                WHERE state NOT IN ('settled', 'cancelled_unissued');
+
+            CREATE TABLE IF NOT EXISTS control_retry_grants (
+                grant_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                case_id TEXT NOT NULL,
+                additional_attempts INTEGER NOT NULL CHECK(additional_attempts > 0),
+                reason TEXT NOT NULL,
+                binding_json TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                FOREIGN KEY (run_id, case_id) REFERENCES tasks(run_id, case_id)
+            );
+
             CREATE INDEX IF NOT EXISTS idx_tasks_claim
                 ON tasks(run_id, status, csv_row_index);
             CREATE INDEX IF NOT EXISTS idx_tasks_lease
@@ -509,6 +570,19 @@ class PrincessState:
                 ON events(run_id, event_id);
             """
         )
+        columns = {row[1] for row in self._connection.execute("PRAGMA table_info(control_dispatch_intents)")}
+        if "unissued_proof_json" not in columns:
+            self._connection.execute("ALTER TABLE control_dispatch_intents ADD COLUMN unissued_proof_json TEXT")
+        for index, field in (("idx_control_unresolved_task", "case_id"),
+                             ("idx_control_unresolved_worker", "worker_id")):
+            definition = self._connection.execute(
+                "SELECT sql FROM sqlite_master WHERE name=?", (index,)).fetchone()
+            if definition is not None and "cancelled_unissued" not in definition[0]:
+                # Only rebuild the two owned indexes; preserve every historical row.
+                self._connection.execute(f"DROP INDEX {index}")
+                self._connection.execute(
+                    f"CREATE UNIQUE INDEX {index} ON control_dispatch_intents(run_id, {field}) "
+                    "WHERE state NOT IN ('settled', 'cancelled_unissued')")
         row = self._connection.execute(
             "SELECT schema_version FROM schema_info"
         ).fetchone()
@@ -562,6 +636,170 @@ class PrincessState:
         if row is None:
             raise UnknownWorkerError(f"unknown worker {worker_id!r} for run {run_id!r}")
         return row
+
+    @staticmethod
+    def _control_json(value: Mapping[str, Any]) -> str:
+        return json.dumps(
+            dict(value), ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        )
+
+    @staticmethod
+    def _binding_identity(binding: Mapping[str, Any]) -> dict[str, Any]:
+        # A reauthenticated controller session may reconcile older attempts;
+        # job/epoch/host (and any supplied specification) must remain pinned.
+        return {key: value for key, value in binding.items() if key != "session_id"}
+
+    @staticmethod
+    def _binding_for_authority(authority: Any) -> dict[str, Any]:
+        """Pin the real authority and complete job, not just reusable job labels.
+
+        Minimal duck-typed fake authorities remain usable by isolated state
+        tests. A real facade exposes both the signed controller identity and
+        persisted job scope, and neither may be omitted or changed on recovery.
+        """
+
+        binding = dict(authority.binding)
+        if hasattr(authority, "controller") or hasattr(authority, "job"):
+            controller = getattr(authority, "controller", None)
+            job = getattr(authority, "job", None)
+            if controller is None or not isinstance(job, Mapping):
+                raise ControlAuthorityError("real control authority requires complete identity and job scope")
+            authority_id = getattr(controller, "authority_id", None)
+            fleet_id = getattr(controller, "fleet_id", None)
+            scope = job.get("scope")
+            if not authority_id or not fleet_id or not isinstance(scope, Mapping) or not scope:
+                raise ControlAuthorityError("control authority identity/fleet/full job scope is missing")
+            binding.update(authority_id=authority_id, fleet_id=fleet_id, scope=dict(scope))
+        return binding
+
+    def _is_controlled_locked(self, connection: sqlite3.Connection, run_id: str) -> bool:
+        return connection.execute(
+            "SELECT 1 FROM control_run_bindings WHERE run_id = ?", (run_id,)
+        ).fetchone() is not None
+
+    def is_controlled_run(self, run_id: str) -> bool:
+        """Read the durable marker, including after reopening without a facade."""
+
+        with self._lock:
+            self._require_run_locked(self._connection, run_id)
+            return self._is_controlled_locked(self._connection, run_id)
+
+    def _bind_control_run_locked(
+        self,
+        connection: sqlite3.Connection,
+        run_id: str,
+        binding: Mapping[str, Any],
+        now: float,
+    ) -> None:
+        identity = self._binding_identity(binding)
+        if not identity or not identity.get("job_id"):
+            raise ControlAuthorityError("control binding requires an acquired job_id")
+        existing = connection.execute(
+            "SELECT binding_json FROM control_run_bindings WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if existing is not None:
+            if self._binding_identity(json.loads(existing["binding_json"])) != identity:
+                raise ControlAuthorityError("controlled run binding cannot be changed")
+            return
+        if connection.execute(
+            "SELECT 1 FROM attempts WHERE run_id = ? LIMIT 1", (run_id,)
+        ).fetchone() is not None:
+            raise ControlAuthorityError("cannot bind a run with legacy attempts")
+        connection.execute(
+            "INSERT INTO control_run_bindings(run_id, binding_json, created_at) "
+            "VALUES (?, ?, ?)", (run_id, self._control_json(binding), now),
+        )
+        self._event_locked(
+            connection, run_id, "control_run_bound", now=now, payload=identity,
+        )
+
+    def bind_control_run(
+        self,
+        run_id: str,
+        binding: Mapping[str, Any] | None = None,
+        *,
+        now: float | None = None,
+    ) -> None:
+        """Persist an irreversible control marker separately from the frozen plan."""
+
+        if binding is None:
+            if self.control_authority is None:
+                raise ControlAuthorityError("control authority is required to bind a run")
+            binding = self._binding_for_authority(self.control_authority)
+        elif self.control_authority is not None and self._binding_identity(binding) != self._binding_identity(
+            self._binding_for_authority(self.control_authority)
+        ):
+            raise ControlAuthorityError("explicit binding differs from complete control authority scope")
+        with self._transaction() as connection:
+            self._require_run_locked(connection, run_id)
+            self._bind_control_run_locked(connection, run_id, binding, self._now(now))
+
+    def _authority_for_run(self, run_id: str) -> Any:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT binding_json FROM control_run_bindings WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None:
+                raise ControlAuthorityError("run is not control-bound")
+            if self.control_authority is None:
+                raise ControlAuthorityError("durably controlled run requires control authority")
+            if self._binding_identity(json.loads(row["binding_json"])) != self._binding_identity(
+                self._binding_for_authority(self.control_authority)
+            ):
+                raise ControlAuthorityError("control authority does not match durable binding")
+        return self.control_authority
+
+    def _reject_controlled_transition_locked(
+        self, connection: sqlite3.Connection, run_id: str, transition: str
+    ) -> None:
+        if self._is_controlled_locked(connection, run_id):
+            raise ControlAuthorityError(
+                f"{transition} is unsupported for controlled runs; use Shore reconciliation"
+            )
+
+    def control_for_attempt(self, attempt_id: str) -> dict[str, Any] | None:
+        """Return the durable permit even after local task completion."""
+
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT descriptor_json, permit_json FROM control_dispatch_intents "
+                "WHERE attempt_id = ?", (attempt_id,)
+            ).fetchone()
+        if row is None or row["permit_json"] is None:
+            return None
+        return {
+            "descriptor": json.loads(row["descriptor_json"]),
+            "permit": json.loads(row["permit_json"]),
+        }
+
+    def approve_control_completion(self, attempt_id: str, evidence_sha256: str) -> None:
+        """Journal the collector's verified evidence before local completion.
+
+        The collector calls this only after shared evidence validation of actual
+        bytes and the authority's confirmation. It is not a worker endpoint.
+        """
+
+        if (
+            len(evidence_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in evidence_sha256)
+            or evidence_sha256 == "0" * 64
+        ):
+            raise ControlAuthorityError("completion evidence must be a nonzero SHA-256")
+        with self._transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM control_dispatch_intents WHERE attempt_id = ?", (attempt_id,)
+            ).fetchone()
+            if row is None or row["permit_json"] is None:
+                raise ControlAuthorityError("completion requires a persisted control permit")
+            self._authority_for_run(str(row["run_id"]))
+            previous = row["completion_evidence_sha256"]
+            if previous is not None and previous != evidence_sha256:
+                raise ControlAuthorityError("completion evidence cannot change on replay")
+            connection.execute(
+                "UPDATE control_dispatch_intents SET completion_evidence_sha256 = ? "
+                "WHERE attempt_id = ?", (evidence_sha256, attempt_id),
+            )
 
     def _event_locked(
         self,
@@ -640,6 +878,10 @@ class PrincessState:
                     raise RunMismatchError(
                         f"run {run_id!r} task rows do not match its frozen CSV"
                     )
+                if self.control_authority is not None:
+                    self._bind_control_run_locked(
+                        connection, run_id, self._binding_for_authority(self.control_authority), timestamp
+                    )
                 return False
 
             connection.execute(
@@ -697,6 +939,10 @@ class PrincessState:
                 """,
                 (run_id, timestamp),
             )
+            if self.control_authority is not None:
+                self._bind_control_run_locked(
+                    connection, run_id, self._binding_for_authority(self.control_authority), timestamp
+                )
         return True
 
     def request_stop(
@@ -713,6 +959,7 @@ class PrincessState:
         timestamp = self._now(now)
         with self._transaction() as connection:
             self._require_run_locked(connection, run_id)
+            self._reject_controlled_transition_locked(connection, run_id, "request_stop")
             active = connection.execute(
                 """
                 SELECT t.case_id, t.attempt_id
@@ -803,6 +1050,7 @@ class PrincessState:
         timestamp = self._now(now)
         with self._transaction() as connection:
             self._require_run_locked(connection, run_id)
+            self._reject_controlled_transition_locked(connection, run_id, "resume_run")
             row = connection.execute(
                 """
                 SELECT stop_requested, reason FROM run_control WHERE run_id = ?
@@ -980,8 +1228,15 @@ class PrincessState:
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
         exclusions = tuple(dict.fromkeys(str(case_id) for case_id in exclude_case_ids))
+        if self.is_controlled_run(run_id):
+            return self._claim_controlled(
+                run_id, worker_id, lease_duration=lease_duration,
+                max_attempts=max_attempts, exclusions=exclusions, now=timestamp,
+            )
         with self._transaction() as connection:
             self._require_run_locked(connection, run_id)
+            if self._is_controlled_locked(connection, run_id):
+                raise ControlAuthorityError("control binding changed during claim; retry through gate")
             self._requeue_expired_locked(
                 connection,
                 run_id,
@@ -1139,8 +1394,288 @@ class PrincessState:
             )
         return claimed
 
+    def _controlled_current_locked(
+        self, connection: sqlite3.Connection, run_id: str, worker_id: str
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            "SELECT t.*, a.attempt_number FROM tasks AS t "
+            "JOIN attempts AS a ON a.attempt_id = t.attempt_id "
+            "WHERE t.run_id = ? AND t.worker_id = ? AND t.status = 'running'",
+            (run_id, worker_id),
+        ).fetchone()
+
     @staticmethod
-    def _claimed_task_from_row(row: sqlite3.Row) -> ClaimedTask:
+    def _control_intent_locked(
+        connection: sqlite3.Connection, run_id: str, worker_id: str
+    ) -> sqlite3.Row | None:
+        return connection.execute(
+            "SELECT * FROM control_dispatch_intents "
+            "WHERE run_id = ? AND worker_id = ? AND state NOT IN ('settled', 'cancelled_unissued')",
+            (run_id, worker_id),
+        ).fetchone()
+
+    def reconcile_unissued_intents(self, run_id: str) -> tuple[str, ...]:
+        """Explicitly close only signed, fenced absence proofs; never abandon a permit.
+
+        The facade persists proof first. A crash between the two journals is
+        recovered by verifying/replaying that same proof. No attempt or result
+        is invented and no evaluation/retry unit is consumed before issuance.
+        """
+        authority = self._authority_for_run(run_id)
+        with self._transaction() as connection:
+            rows = connection.execute(
+                "SELECT * FROM control_dispatch_intents WHERE run_id=? "
+                "AND state='intent' AND permit_json IS NULL ORDER BY created_at,operation_id",
+                (run_id,)).fetchall()
+        closed = []
+        for row in rows:
+            intent = {**json.loads(row["intent_json"]), "descriptor": json.loads(row["descriptor_json"])}
+            proof = authority.reconcile_unissued_intent(intent)
+            authority.verify_unissued_intent(intent, proof)
+            encoded = self._control_json(proof)
+            with self._transaction() as connection:
+                current = connection.execute(
+                    "SELECT * FROM control_dispatch_intents WHERE operation_id=?", (row["operation_id"],)).fetchone()
+                if current["state"] == "cancelled_unissued":
+                    if current["unissued_proof_json"] != encoded:
+                        raise ControlAuthorityError("Unissued cancellation proof changed on replay")
+                    continue
+                if (current["state"] != "intent" or current["permit_json"] is not None
+                        or current["intent_json"] != row["intent_json"]
+                        or current["descriptor_json"] != row["descriptor_json"]
+                        or connection.execute("SELECT 1 FROM attempts WHERE attempt_id=?",
+                                              (row["attempt_id"],)).fetchone()):
+                    raise ControlAuthorityError("Cannot cancel an issued or changed dispatch intent")
+                now = self._now(None)
+                connection.execute(
+                    "UPDATE control_dispatch_intents SET state='cancelled_unissued',unissued_proof_json=?,"
+                    "updated_at=? WHERE operation_id=?", (encoded, now, row["operation_id"]))
+                self._event_locked(connection, run_id, "control_unissued_cancelled", now=now,
+                    worker_id=row["worker_id"], case_id=row["case_id"], attempt_id=row["attempt_id"],
+                    payload={"operation_id": row["operation_id"],
+                             "proof_sha256": hashlib.sha256(encoded.encode()).hexdigest()})
+                closed.append(str(row["operation_id"]))
+        return tuple(closed)
+
+    def control_retry_pauses(self, run_id: str, *, max_attempts: int) -> list[dict[str, Any]]:
+        """Visible retry exhaustion, separate from the full-job evaluation budget."""
+        if type(max_attempts) is not int or max_attempts < 1:
+            raise ValueError("max_attempts must be a positive integer")
+        if not self.is_controlled_run(run_id):
+            return []
+        with self._transaction() as connection:
+            rows = connection.execute(
+                "SELECT t.case_id,t.attempt_count,? + COALESCE((SELECT SUM(g.additional_attempts) "
+                "FROM control_retry_grants g WHERE g.run_id=t.run_id AND g.case_id=t.case_id),0) AS allowance "
+                "FROM tasks t WHERE t.run_id=? AND t.status='pending' "
+                "ORDER BY t.csv_row_index,t.case_id", (max_attempts, run_id)).fetchall()
+        return [{"case_id": r["case_id"], "attempt_count": r["attempt_count"], "max_attempts": r["allowance"]}
+                for r in rows if r["attempt_count"] >= r["allowance"]]
+
+    def grant_control_retries(self, run_id: str, case_id: str, *, additional_attempts: int,
+                              grant_id: str, reason: str) -> dict[str, Any]:
+        """Explicit operator extension; never reset numbering or evaluation budget.
+
+        Every dispatch (even a proven not_started) retains its historical retry
+        cost. An operator may grant more dispatch retries under current control
+        authority. Stable grant_id makes repeated commands non-additive.
+        """
+        if type(additional_attempts) is not int or additional_attempts < 1:
+            raise ValueError("additional_attempts must be a positive integer")
+        grant_id = self._require_text(grant_id, "grant_id")
+        reason = self._require_text(reason, "reason")
+        authority = self._authority_for_run(run_id)
+        authority.require_new_work()
+        with self._transaction() as connection:
+            old = connection.execute("SELECT * FROM control_retry_grants WHERE grant_id=?", (grant_id,)).fetchone()
+            if old:
+                if (old["run_id"], old["case_id"], old["additional_attempts"], old["reason"]) != (
+                        run_id, case_id, additional_attempts, reason):
+                    raise ControlAuthorityError("Retry grant identifier reused with changed content")
+                return dict(old)
+            task = connection.execute("SELECT * FROM tasks WHERE run_id=? AND case_id=?", (run_id, case_id)).fetchone()
+            if task is None or task["status"] != "pending":
+                raise ControlAuthorityError("Retry extension requires a pending controlled case")
+            if connection.execute("SELECT 1 FROM control_dispatch_intents WHERE run_id=? AND case_id=? "
+                    "AND state NOT IN ('settled','cancelled_unissued')", (run_id, case_id)).fetchone():
+                raise ControlAuthorityError("Retry extension cannot bypass an unresolved dispatch")
+            now = self._now(None)
+            connection.execute("INSERT INTO control_retry_grants VALUES(?,?,?,?,?,?,?)",
+                (grant_id, run_id, case_id, additional_attempts, reason, self._control_json(authority.binding), now))
+            self._event_locked(connection, run_id, "control_retry_granted", now=now, case_id=case_id,
+                payload={"grant_id": grant_id, "additional_attempts": additional_attempts, "reason": reason})
+            return dict(connection.execute("SELECT * FROM control_retry_grants WHERE grant_id=?", (grant_id,)).fetchone())
+
+    def _claim_controlled(
+        self,
+        run_id: str,
+        worker_id: str,
+        *,
+        lease_duration: float,
+        max_attempts: int,
+        exclusions: tuple[str, ...],
+        now: float,
+    ) -> ClaimedTask | None:
+        """Reserve -> authorize -> commit; no network call holds a SQLite txn."""
+
+        authority = self._authority_for_run(run_id)
+        with self._transaction() as connection:
+            self._require_worker_locked(connection, run_id, worker_id)
+            current = self._controlled_current_locked(connection, run_id, worker_id)
+            if current is not None:
+                return self._claimed_task_from_row(current)
+            intent = self._control_intent_locked(connection, run_id, worker_id)
+
+        if intent is None:
+            # This freshness check is not itself authorization. The actual new
+            # operation must still pass authority.validate_dispatch after its
+            # immutable descriptor and operation id are durably reserved below.
+            authority.require_new_work()
+            with self._transaction() as connection:
+                current = self._controlled_current_locked(connection, run_id, worker_id)
+                if current is not None:
+                    return self._claimed_task_from_row(current)
+                intent = self._control_intent_locked(connection, run_id, worker_id)
+                if intent is None:
+                    worker = self._require_worker_locked(connection, run_id, worker_id)
+                    if worker["status"] in BLOCKED_WORKER_STATUSES:
+                        raise WorkerUnavailableError(
+                            f"worker {worker_id!r} cannot claim while {worker['status']}"
+                        )
+                    query = (
+                        "SELECT t.*, r.csv_sha256 FROM tasks AS t "
+                        "JOIN runs AS r ON r.run_id = t.run_id "
+                        "WHERE t.run_id = ? AND t.status = 'pending' "
+                        "AND t.attempt_count < ? + COALESCE((SELECT SUM(g.additional_attempts) "
+                        "FROM control_retry_grants g WHERE g.run_id=t.run_id AND g.case_id=t.case_id),0) "
+                        "AND NOT EXISTS ("
+                        "SELECT 1 FROM control_dispatch_intents AS i "
+                        "WHERE i.run_id = t.run_id AND i.case_id = t.case_id "
+                        "AND i.state NOT IN ('settled','cancelled_unissued'))"
+                    )
+                    parameters: list[Any] = [run_id, max_attempts]
+                    if exclusions:
+                        query += " AND t.case_id NOT IN (" + ",".join("?" for _ in exclusions) + ")"
+                        parameters.extend(exclusions)
+                    query += " ORDER BY t.csv_row_index, t.case_id LIMIT 1"
+                    task = connection.execute(query, parameters).fetchone()
+                    if task is None:
+                        return None
+                    operation_id = uuid4().hex
+                    attempt_id = uuid4().hex
+                    intent_data = {
+                        "operation_id": operation_id, "attempt_id": attempt_id,
+                        "run_id": run_id, "case_id": str(task["case_id"]),
+                        "worker_id": worker_id,
+                        "input_sha256": str(task["row_sha256"]),
+                        "row_sha256": str(task["row_sha256"]),
+                        "csv_sha256": str(task["csv_sha256"]),
+                    }
+                    descriptor = authority.descriptor_for_attempt(intent_data)
+                    connection.execute(
+                        "INSERT INTO control_dispatch_intents("
+                        "operation_id, attempt_id, run_id, case_id, worker_id, "
+                        "attempt_number, lease_token, intent_json, descriptor_json, "
+                        "state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'intent', ?, ?)",
+                        (
+                            operation_id, attempt_id, run_id, task["case_id"], worker_id,
+                            int(task["attempt_count"]) + 1, uuid4().hex,
+                            self._control_json(intent_data), self._control_json(descriptor), now, now,
+                        ),
+                    )
+                    self._event_locked(
+                        connection, run_id, "control_dispatch_intent", now=now,
+                        worker_id=worker_id, case_id=str(task["case_id"]), attempt_id=attempt_id,
+                        payload={"operation_id": operation_id, "descriptor": descriptor},
+                    )
+                    intent = self._control_intent_locked(connection, run_id, worker_id)
+
+        assert intent is not None
+        if intent["permit_json"] is None:
+            intent_data = json.loads(intent["intent_json"])
+            descriptor = json.loads(intent["descriptor_json"])
+            # Exceptions (including unknown RPC outcome) deliberately retain the
+            # unresolved reservation. Neither worker nor task can obtain a new id.
+            reply = authority.issue_attempt({**intent_data, "descriptor": descriptor})
+            if not isinstance(reply, Mapping) or reply.get("descriptor") != descriptor:
+                raise ControlAuthorityError("authority reply changed the persisted descriptor")
+            if not isinstance(reply.get("permit"), Mapping) or not reply["permit"]:
+                raise ControlAuthorityError("authority reply omitted its signed permit")
+            permit_json = self._control_json(reply["permit"])
+            with self._transaction() as connection:
+                saved = connection.execute(
+                    "SELECT permit_json FROM control_dispatch_intents WHERE operation_id = ?",
+                    (intent["operation_id"],),
+                ).fetchone()
+                if saved["permit_json"] is not None and saved["permit_json"] != permit_json:
+                    raise ControlAuthorityError("authority replay changed its persisted permit")
+                connection.execute(
+                    "UPDATE control_dispatch_intents SET permit_json = ?, updated_at = ? "
+                    "WHERE operation_id = ?", (permit_json, now, intent["operation_id"]),
+                )
+
+        return self._commit_controlled_claim(
+            str(intent["operation_id"]), lease_duration=lease_duration, now=now,
+        )
+
+    def _commit_controlled_claim(
+        self, operation_id: str, *, lease_duration: float, now: float
+    ) -> ClaimedTask:
+        """Commit a previously permitted intent (separate crash-recovery point)."""
+
+        with self._transaction() as connection:
+            intent = connection.execute(
+                "SELECT * FROM control_dispatch_intents WHERE operation_id = ?", (operation_id,)
+            ).fetchone()
+            if intent is None or intent["permit_json"] is None:
+                raise ControlAuthorityError("assignment requires a durable permit")
+            run_id, worker_id = str(intent["run_id"]), str(intent["worker_id"])
+            current = self._controlled_current_locked(connection, run_id, worker_id)
+            if current is not None:
+                if current["attempt_id"] != intent["attempt_id"]:
+                    raise ControlAuthorityError("worker has a different unresolved attempt")
+                return self._claimed_task_from_row(current)
+            task = connection.execute(
+                "SELECT * FROM tasks WHERE run_id = ? AND case_id = ?",
+                (run_id, intent["case_id"]),
+            ).fetchone()
+            if task["status"] != "pending" or intent["state"] != "intent":
+                raise ControlAuthorityError("permitted dispatch is not a pending intent")
+            expires_at = now + lease_duration
+            connection.execute(
+                "INSERT INTO attempts(attempt_id, run_id, case_id, worker_id, attempt_number, "
+                "lease_token, status, lease_expires_at, started_at, last_heartbeat) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)",
+                (intent["attempt_id"], run_id, intent["case_id"], worker_id,
+                 intent["attempt_number"], intent["lease_token"], expires_at, now, now),
+            )
+            connection.execute(
+                "UPDATE tasks SET status = 'running', attempt_count = ?, worker_id = ?, "
+                "attempt_id = ?, lease_token = ?, lease_expires_at = ?, updated_at = ? "
+                "WHERE run_id = ? AND case_id = ? AND status = 'pending'",
+                (intent["attempt_number"], worker_id, intent["attempt_id"], intent["lease_token"],
+                 expires_at, now, run_id, intent["case_id"]),
+            )
+            connection.execute(
+                "UPDATE workers SET status = 'busy', current_case_id = ?, current_attempt_id = ?, "
+                "last_seen = ?, updated_at = ? WHERE run_id = ? AND worker_id = ?",
+                (intent["case_id"], intent["attempt_id"], now, now, run_id, worker_id),
+            )
+            connection.execute(
+                "UPDATE control_dispatch_intents SET state = 'committed', updated_at = ? "
+                "WHERE operation_id = ?", (now, operation_id),
+            )
+            self._event_locked(
+                connection, run_id, "task_claimed", now=now, worker_id=worker_id,
+                case_id=str(intent["case_id"]), attempt_id=str(intent["attempt_id"]),
+                payload={"attempt_number": int(intent["attempt_number"]),
+                         "lease_expires_at": expires_at, "operation_id": operation_id},
+            )
+            current = self._controlled_current_locked(connection, run_id, worker_id)
+            assert current is not None
+            return self._claimed_task_from_row(current)
+
+    def _claimed_task_from_row(self, row: sqlite3.Row) -> ClaimedTask:
         return ClaimedTask(
             run_id=str(row["run_id"]),
             case_id=str(row["case_id"]),
@@ -1151,6 +1686,7 @@ class PrincessState:
             attempt_number=int(row["attempt_number"]),
             lease_token=str(row["lease_token"]),
             lease_expires_at=float(row["lease_expires_at"]),
+            control_authority=self.control_for_attempt(str(row["attempt_id"])),
         )
 
     def _owned_attempt_locked(
@@ -1190,6 +1726,8 @@ class PrincessState:
         worker_status: str = "offline",
         max_attempts: int | None = None,
     ) -> None:
+        if self._is_controlled_locked(connection, str(task["run_id"])):
+            raise ControlAuthorityError("controlled lease expiry is not execution evidence")
         task_status = (
             "failed"
             if max_attempts is not None
@@ -1261,6 +1799,10 @@ class PrincessState:
         *,
         max_attempts: int | None = None,
     ) -> list[str]:
+        if self._is_controlled_locked(connection, run_id):
+            # Loss of contact is an unresolved operation, not a failed attempt.
+            # Keep ownership and accept late heartbeats/uploads during drain.
+            return []
         expired = connection.execute(
             """
             SELECT t.* FROM tasks AS t
@@ -1301,7 +1843,10 @@ class PrincessState:
             task = self._owned_attempt_locked(
                 connection, run_id, worker_id, attempt_id, lease_token
             )
-            if float(task["lease_expires_at"]) <= timestamp:
+            if (
+                float(task["lease_expires_at"]) <= timestamp
+                and not self._is_controlled_locked(connection, run_id)
+            ):
                 self._expire_task_locked(connection, task, timestamp)
                 expired = True
                 new_expiry = float(task["lease_expires_at"])
@@ -1405,6 +1950,26 @@ class PrincessState:
 
         timestamp = self._now(now)
         with self._transaction() as connection:
+            if self._is_controlled_locked(connection, run_id):
+                approved = connection.execute(
+                    "SELECT completion_evidence_sha256 FROM control_dispatch_intents "
+                    "WHERE run_id = ? AND worker_id = ? AND attempt_id = ? AND lease_token = ?",
+                    (run_id, worker_id, attempt_id, lease_token),
+                ).fetchone()
+                if approved is None or approved["completion_evidence_sha256"] is None:
+                    raise ControlAuthorityError("controlled completion requires verified collector evidence")
+                completed = connection.execute(
+                    "SELECT artifact_path, manifest_sha256 FROM attempts "
+                    "WHERE attempt_id = ? AND run_id = ? AND worker_id = ? "
+                    "AND lease_token = ? AND status = 'completed'",
+                    (attempt_id, run_id, worker_id, lease_token),
+                ).fetchone()
+                if completed is not None:
+                    if artifact_path is not None and str(artifact_path) != completed["artifact_path"]:
+                        raise ControlAuthorityError("completed artifact cannot change on replay")
+                    if manifest_sha256 is not None and manifest_sha256 != completed["manifest_sha256"]:
+                        raise ControlAuthorityError("completed manifest cannot change on replay")
+                    return
             task = self._owned_attempt_locked(
                 connection, run_id, worker_id, attempt_id, lease_token
             )
@@ -1455,6 +2020,10 @@ class PrincessState:
                 """,
                 (timestamp, timestamp, run_id, worker_id),
             )
+            connection.execute(
+                "UPDATE control_dispatch_intents SET state = 'settled', updated_at = ? "
+                "WHERE attempt_id = ?", (timestamp, attempt_id),
+            )
             self._event_locked(
                 connection,
                 run_id,
@@ -1468,6 +2037,82 @@ class PrincessState:
                     "manifest_sha256": resolved_manifest,
                 },
             )
+
+    def settle_control_terminal(
+        self,
+        run_id: str,
+        worker_id: str,
+        attempt_id: str,
+        lease_token: str,
+        *,
+        outcome: str,
+        evidence_sha256: str,
+        artifact_path: str | Path,
+        now: float | None = None,
+    ) -> str:
+        """Apply a collector-verified failed/not-started dual-receipt terminal.
+
+        This is deliberately separate from fail_task/release_task. The caller
+        must validate real evidence bytes, obtain signed RESOLVED, and durably
+        approve that exact evidence before calling. UNKNOWN is never accepted.
+        A proven not-started attempt stays in history; its task becomes pending
+        but dispatch still requires a fresh authority decision and new permit.
+        """
+
+        if outcome not in {"failed", "not_started"}:
+            raise ControlAuthorityError("only proven failed/not_started control terminals may settle")
+        artifact_text = self._require_text(str(artifact_path), "artifact_path")
+        timestamp = self._now(now)
+        self._authority_for_run(run_id)
+        with self._transaction() as connection:
+            intent = connection.execute(
+                "SELECT * FROM control_dispatch_intents WHERE run_id = ? AND worker_id = ? "
+                "AND attempt_id = ? AND lease_token = ?",
+                (run_id, worker_id, attempt_id, lease_token),
+            ).fetchone()
+            if (intent is None or intent["permit_json"] is None
+                    or intent["completion_evidence_sha256"] is None
+                    or intent["completion_evidence_sha256"] != evidence_sha256):
+                raise ControlAuthorityError("terminal settlement requires exact approved collector evidence")
+            attempt = connection.execute(
+                "SELECT * FROM attempts WHERE run_id = ? AND worker_id = ? "
+                "AND attempt_id = ? AND lease_token = ?",
+                (run_id, worker_id, attempt_id, lease_token),
+            ).fetchone()
+            if attempt is not None and intent["state"] == "settled":
+                if attempt["status"] != outcome or attempt["artifact_path"] != artifact_text:
+                    raise ControlAuthorityError("controlled terminal outcome/root cannot change on replay")
+                return str(attempt["case_id"])
+            task = self._owned_attempt_locked(connection, run_id, worker_id, attempt_id, lease_token)
+            task_status = "failed" if outcome == "failed" else "pending"
+            connection.execute(
+                "UPDATE attempts SET status = ?, finished_at = ?, artifact_path = ?, "
+                "error_kind = ?, error_message = ?, counts_toward_streak = 0 WHERE attempt_id = ?",
+                (outcome, timestamp, artifact_text, "ShoreTerminal", outcome, attempt_id),
+            )
+            connection.execute(
+                "UPDATE tasks SET status = ?, worker_id = NULL, attempt_id = NULL, "
+                "lease_token = NULL, lease_expires_at = NULL, artifact_path = ?, "
+                "last_error_kind = 'ShoreTerminal', last_error_message = ?, updated_at = ? "
+                "WHERE run_id = ? AND case_id = ? AND attempt_id = ?",
+                (task_status, artifact_text, outcome, timestamp, run_id, task["case_id"], attempt_id),
+            )
+            connection.execute(
+                "UPDATE workers SET status = 'idle', current_case_id = NULL, current_attempt_id = NULL, "
+                "last_seen = ?, updated_at = ? WHERE run_id = ? AND worker_id = ?",
+                (timestamp, timestamp, run_id, worker_id),
+            )
+            connection.execute(
+                "UPDATE control_dispatch_intents SET state = 'settled', updated_at = ? "
+                "WHERE attempt_id = ?", (timestamp, attempt_id),
+            )
+            self._event_locked(
+                connection, run_id, "control_terminal_settled", now=timestamp,
+                worker_id=worker_id, case_id=str(task["case_id"]), attempt_id=attempt_id,
+                payload={"outcome": outcome, "evidence_sha256": evidence_sha256,
+                         "artifact_path": artifact_text, "task_status": task_status},
+            )
+            return str(task["case_id"])
 
     @staticmethod
     def _failure_record_from_row(row: sqlite3.Row) -> FailureRecord:
@@ -1535,6 +2180,7 @@ class PrincessState:
         error_message = self._require_text(error_message, "error_message")
         timestamp = self._now(now)
         with self._transaction() as connection:
+            self._reject_controlled_transition_locked(connection, run_id, "fail_task/retry")
             task = self._owned_attempt_locked(
                 connection, run_id, worker_id, attempt_id, lease_token
             )
@@ -1656,6 +2302,7 @@ class PrincessState:
         worker_status = self._require_text(worker_status, "worker_status")
         timestamp = self._now(now)
         with self._transaction() as connection:
+            self._reject_controlled_transition_locked(connection, run_id, "release_task/requeue")
             task = self._owned_attempt_locked(
                 connection, run_id, worker_id, attempt_id, lease_token
             )
@@ -1774,6 +2421,7 @@ class PrincessState:
             raise ValueError("automatic restart limit cannot be negative")
         timestamp = self._now(now)
         with self._transaction() as connection:
+            self._reject_controlled_transition_locked(connection, run_id, "automatic worker restart")
             worker = self._require_worker_locked(connection, run_id, worker_id)
             if worker["current_attempt_id"] is not None:
                 raise StateError("cannot restart a worker that still owns an attempt")
@@ -1827,6 +2475,7 @@ class PrincessState:
 
         timestamp = self._now(now)
         with self._transaction() as connection:
+            self._reject_controlled_transition_locked(connection, run_id, "worker wake")
             worker = self._require_worker_locked(connection, run_id, worker_id)
             if worker["current_attempt_id"] is not None:
                 raise StateError("cannot wake a worker that still owns an attempt")

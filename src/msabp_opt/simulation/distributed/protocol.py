@@ -15,6 +15,7 @@ from uuid import uuid4
 
 
 PROTOCOL_VERSION = 1
+CONTROL_PROTOCOL_VERSION = 2
 FRAME_MAGIC = "MSABP/1\t"
 MAX_FRAME_BYTES = 1024 * 1024
 
@@ -37,6 +38,7 @@ def make_message(
     payload: Mapping[str, Any] | None = None,
     message_id: str | None = None,
     sent_at_utc: str | None = None,
+    protocol_version: int = PROTOCOL_VERSION,
 ) -> dict[str, Any]:
     """Build a versioned protocol message with stable envelope fields."""
 
@@ -52,7 +54,7 @@ def make_message(
         raise ProtocolError("payload must be a mapping")
 
     message: dict[str, Any] = {
-        "protocol_version": PROTOCOL_VERSION,
+        "protocol_version": protocol_version,
         "type": message_type.strip(),
         "message_id": message_id or uuid4().hex,
         "run_id": run_id.strip(),
@@ -72,9 +74,9 @@ def validate_message(message: Mapping[str, Any]) -> dict[str, Any]:
 
     normalized = dict(message)
     version = normalized.get("protocol_version")
-    if version != PROTOCOL_VERSION:
+    if type(version) is not int or version not in (PROTOCOL_VERSION, CONTROL_PROTOCOL_VERSION):
         raise ProtocolError(
-            f"unsupported protocol_version {version!r}; expected {PROTOCOL_VERSION}"
+            f"unsupported protocol_version {version!r}; expected 1 or 2"
         )
 
     for field in ("type", "message_id", "run_id", "sent_at_utc"):

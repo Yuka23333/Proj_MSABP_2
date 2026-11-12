@@ -29,9 +29,25 @@ if str(REPOSITORY_ROOT) not in sys.path:
 # Maid runs without an interactive desktop; geometry preflight never needs a GUI.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
-from scripts.automation import antenna_sampler  # noqa: E402
-from scripts.automation import cst_build_msabp_geometry  # noqa: E402
-from scripts.automation import cst_run_and_export_s11  # noqa: E402
+class _LazyAutomationModule:
+    """Keep transport-only Maids independent of solver/geometry dependencies.
+
+    Legacy execution still loads the identical automation module when its first
+    operation is used; an injected synthetic executor never needs these imports.
+    """
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def __getattr__(self, name: str):
+        from importlib import import_module
+
+        return getattr(import_module("scripts.automation." + self.name), name)
+
+
+antenna_sampler = _LazyAutomationModule("antenna_sampler")
+cst_build_msabp_geometry = _LazyAutomationModule("cst_build_msabp_geometry")
+cst_run_and_export_s11 = _LazyAutomationModule("cst_run_and_export_s11")
 
 
 MANIFEST_SCHEMA_VERSION = 1
@@ -43,8 +59,8 @@ SUPPORTED_SIMULATION_MODES = (
     "antenna_tree",
 )
 S11_FILENAME = "S11.csv"
-RAD_EFF_FILENAME = cst_run_and_export_s11.RAD_EFF_FILENAME
-TOT_EFF_FILENAME = cst_run_and_export_s11.TOT_EFF_FILENAME
+RAD_EFF_FILENAME = "Rad_Eff.csv"
+TOT_EFF_FILENAME = "Tot_Eff.csv"
 FARFIELD_SOURCE_FILENAME = "Farfield Source [1].ffs"
 MANIFEST_FILENAME = "manifest.json"
 SUBSTRATE_MATERIAL_COLUMN = "substrate_material"

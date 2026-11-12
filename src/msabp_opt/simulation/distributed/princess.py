@@ -80,10 +80,10 @@ def _optional_bool(payload: Mapping[str, Any], name: str, default: bool) -> bool
 
 def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
     temporary = path.with_name(f"{path.name}.tmp")
-    temporary.write_text(
-        json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+    with temporary.open("w", encoding="utf-8") as stream:
+        json.dump(dict(payload), stream, ensure_ascii=False, indent=2, sort_keys=True)
+        stream.flush()
+        os.fsync(stream.fileno())
     temporary.replace(path)
 
 
@@ -140,6 +140,16 @@ class PrincessCoordinator:
             raise ValueError("required_simulation_modes must not be empty")
         self._attempt_locks_guard = threading.Lock()
         self._attempt_locks: dict[str, threading.Lock] = {}
+        self.controlled = bool(
+            getattr(state, "is_controlled_run", lambda _run: False)(run_id)
+        )
+        from .control_policy import lab_mode
+        if lab_mode() and not self.controlled:
+            raise ValueError("Shore lab collector requires a durably bound controlled run")
+        self.control_collector = None
+        if self.controlled:
+            from .control_collector import ControlCollector
+            self.control_collector = ControlCollector(self)
 
     @staticmethod
     def _state_call(operation: Any, *args: Any, **kwargs: Any) -> Any:
@@ -229,9 +239,12 @@ class PrincessCoordinator:
             run_id=self.run_id,
             worker_id=str(request.get("worker_id", "")) or None,
             payload=payload,
+            protocol_version=2 if self.controlled else 1,
         )
 
     def handle_message(self, request: dict[str, Any]) -> dict[str, Any]:
+        if request.get("protocol_version") != (2 if self.controlled else 1):
+            raise ApiError(HTTPStatus.CONFLICT, "Explicit Shore protocol v2/legacy v1 mode mismatch")
         if request["run_id"] != self.run_id:
             raise ApiError(HTTPStatus.CONFLICT, "Maid run_id does not match Princess")
         worker_id = _safe_identifier(
@@ -289,6 +302,10 @@ class PrincessCoordinator:
             )
 
         if message_type == "request_task":
+            if self.controlled and self.state.progress(self.run_id).is_terminal:
+                # A drained collector must still answer a restarted worker whose
+                # durable outbox just finished; no new-work authorization needed.
+                return self._reply(request, "stop", {"progress": _record_mapping(self.state.progress(self.run_id))})
             self.state.mark_worker_ready(self.run_id, worker_id)
             raw_exclusions = payload.get("exclude_case_ids", [])
             if not isinstance(raw_exclusions, list) or not all(
@@ -325,6 +342,12 @@ class PrincessCoordinator:
             )
             if unfinished == 0:
                 return self._reply(request, "stop", {"progress": progress})
+            if self.controlled:
+                paused = self.state.control_retry_pauses(self.run_id, max_attempts=self.max_attempts)
+                if paused:
+                    return self._reply(request, "retry_paused", {
+                        "reason": "controlled dispatch retry allowance exhausted; explicit grant required",
+                        "cases": paused, "progress": progress})
             return self._reply(
                 request,
                 "wait",
@@ -347,6 +370,8 @@ class PrincessCoordinator:
             )
 
         if message_type == "failure":
+            if self.controlled:
+                raise ApiError(HTTPStatus.CONFLICT, "Unverified controlled failure cannot refund or restart work")
             attempt_id = _safe_identifier(
                 _required_text(payload, "attempt_id"),
                 "attempt_id",
@@ -405,7 +430,13 @@ class PrincessCoordinator:
                     return self._reply(request, "restart", outcome_payload)
                 return self._reply(request, "failure_ack", outcome_payload)
 
+        if message_type == "control_terminal" and self.control_collector is not None:
+            from .control_failure import ControlFailureCollector
+            return ControlFailureCollector(self.control_collector).complete(request)
+
         if message_type == "complete":
+            if self.control_collector is not None:
+                return self.control_collector.complete(request)
             attempt_id = _safe_identifier(
                 _required_text(payload, "attempt_id"),
                 "attempt_id",
@@ -517,6 +548,15 @@ class PrincessCoordinator:
                 )
 
         raise ApiError(HTTPStatus.BAD_REQUEST, f"unknown Maid message: {message_type}")
+
+    def begin_artifact_upload(self, attempt_id: str, worker_id: str, lease_token: str):
+        if self.control_collector is not None:
+            return self.control_collector.begin_upload(attempt_id, worker_id, lease_token)
+        return None
+
+    def end_artifact_upload(self, upload_id):
+        if upload_id is not None and self.control_collector is not None:
+            self.control_collector.end_upload(upload_id)
 
     def handle_artifact(
         self,

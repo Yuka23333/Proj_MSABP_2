@@ -26,6 +26,7 @@ from uuid import uuid4
 
 from .bell import BellError, MaidBellClient
 from .config import DeviceConfig, LaunchMode
+from .control_policy import reject_external_execution
 
 
 REQUIRED_PYTHON_MODULES = (
@@ -125,8 +126,18 @@ def _default_runner(
     cwd: str | Path | None = None,
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    reject_external_execution("subprocess/SSH/GPU command")
+    command = list(command)
+    if os.environ.get("MSABP_SSH_BACKEND", "").strip():
+        # With MSABP_SSH_BACKEND=shore-usb, ssh/scp run as Plink/PSCP with the
+        # Shore management USB key. The backend is imported only when selected:
+        # this module is part of the Supervisor release installed on workers,
+        # and the USB backend, which only a controlling PC needs, is not.
+        from .shore_usb_ssh import translate_command
+
+        command = translate_command(command)
     return subprocess.run(
-        list(command),
+        command,
         cwd=cwd,
         timeout=timeout,
         capture_output=True,
@@ -204,6 +215,7 @@ def _run_checked(
     timeout: float | None,
     action: str,
 ) -> subprocess.CompletedProcess[str]:
+    reject_external_execution(action)
     try:
         result = runner(list(command), cwd=cwd, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -340,6 +352,8 @@ def push_file_atomic(
     transfer_timeout: float | None = DEFAULT_TRANSFER_TIMEOUT_SECONDS,
 ) -> TransferReceipt:
     """Atomically distribute one file to a local or SSH Maid device."""
+
+    reject_external_execution("file distribution")
 
     source = Path(local_path).expanduser().resolve()
     if not source.is_file():
@@ -496,6 +510,8 @@ def copy_device_file_atomic(
     private per-launch working copy without uploading a local CST file.
     """
 
+    reject_external_execution("device template copy")
+
     source = _windows_absolute_path(source_path, "source_path")
     destination = _windows_absolute_path(destination_path, "destination_path")
     if device.launch_mode is LaunchMode.LOCAL:
@@ -634,6 +650,8 @@ def pull_file_atomic(
     transfer_timeout: float | None = DEFAULT_TRANSFER_TIMEOUT_SECONDS,
 ) -> TransferReceipt:
     """Atomically retrieve one file from a local or SSH Maid device."""
+
+    reject_external_execution("file retrieval")
 
     source = _windows_absolute_path(source_path, "source_path")
     transfer_timeout = _validated_transfer_timeout(transfer_timeout)
@@ -1019,6 +1037,8 @@ def launch_maid(
     bell_client_factory: BellClientFactory = MaidBellClient,
 ) -> LaunchReceipt:
     """Wake one Maid without retaining a Princess-to-Maid SSH channel."""
+
+    reject_external_execution("local/Bell/SSH Maid launch")
 
     if not device.enabled:
         raise TransportError(f"device {device.id!r} is disabled")
