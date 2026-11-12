@@ -21,9 +21,19 @@ param(
 $ErrorActionPreference = 'Stop'
 
 function Get-RunningCstProcess {
+    $knownInfrastructure = @{
+        'CSTDCSolverServer_AMD64.exe' = 'C:\Program Files (x86)\CST Studio Suite 2025\AMD64\DC Solver Server\CSTDCSolverServer_AMD64.exe'
+        'CSTDCMainController_AMD64.exe' = 'C:\Program Files (x86)\CST Studio Suite 2025\AMD64\DC Main Controller\CSTDCMainController_AMD64.exe'
+        'cstd.exe' = 'C:\Program Files (x86)\CST Studio Suite 2025\License Manager\cstd.exe'
+    }
     @(
         Get-CimInstance Win32_Process | Where-Object {
             $_.Name -match '(?i)cst|designenvironment|dbstorage|solver'
+        } | Where-Object {
+            -not (
+                $knownInfrastructure.ContainsKey([string]$_.Name) -and
+                [string]$_.ExecutablePath -ieq $knownInfrastructure[[string]$_.Name]
+            )
         }
     )
 }

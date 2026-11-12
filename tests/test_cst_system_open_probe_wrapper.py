@@ -50,10 +50,76 @@ def test_wrapper_uploads_sources_instead_of_embedding_python() -> None:
 
 def test_plan_guard_precedes_every_remote_write_or_cst_start() -> None:
     source = WRAPPER.read_text(encoding="utf-8")
-    guard = source.index("if (-not $Execute)")
-    assert guard < source.index("$preflight = @'")
-    assert guard < source.index("& $pscp @pscpArguments")
+    guard = source.index("if (-not $Execute -and -not $PreflightOnly)")
+    assert guard < source.index("$audit = @'")
+    assert guard < source.index("$prepare = @'")
+    assert guard < source.index("Invoke-NativeCaptured $pscp")
     assert guard < source.index("Starting the approved SYSTEM CST")
+
+
+def test_read_only_preflight_is_separate_from_remote_staging() -> None:
+    source = WRAPPER.read_text(encoding="utf-8")
+    audit = source.split("$audit = @'", 1)[1].split("'@", 1)[0]
+    prepare = source.split("$prepare = @'", 1)[1].split("'@", 1)[0]
+    assert "New-Item" not in audit
+    assert "RegisterTask" not in audit
+    assert "New-Item" in prepare
+    assert "if ($PreflightOnly)" in source
+    assert "READ-ONLY PREFLIGHT COMPLETE" in source
+
+
+def test_actual_remote_commands_use_direct_pinned_plink_after_control_gate() -> None:
+    source = WRAPPER.read_text(encoding="utf-8")
+    assert "'-Command', 'exit 0'" in source
+    assert "Invoke-ShoreCommand $plink $identity $node $fingerprint $audit" in source
+    assert "Invoke-ShoreCommand $plink $identity $node $fingerprint $launch" in source
+    assert "'-no-trivial-auth'" in source
+    assert "Get-AuthenticodeSignature -LiteralPath $binary" in source
+
+
+def test_only_exact_cst_infrastructure_names_and_paths_are_allowed() -> None:
+    wrapper = WRAPPER.read_text(encoding="utf-8")
+    remote = REMOTE.read_text(encoding="utf-8")
+    for source in (wrapper, remote):
+        assert "CSTDCSolverServer_AMD64.exe" in source
+        assert "CSTDCMainController_AMD64.exe" in source
+        assert "License Manager\\cstd.exe" in source
+        assert "$knownInfrastructure.ContainsKey([string]$_.Name)" in source
+        assert "[string]$_.ExecutablePath -ieq $knownInfrastructure[[string]$_.Name]" in source
+
+
+def test_native_capture_preserves_multiline_stderr_and_exit_code() -> None:
+    executable = shutil.which("powershell.exe")
+    if not executable:
+        pytest.skip("Windows PowerShell is unavailable")
+    source = WRAPPER.read_text(encoding="utf-8")
+    start = source.index("function Invoke-NativeCaptured")
+    end = source.index("function Assert-ShoreOnline", start)
+    function_source = source[start:end]
+    child = (
+        "[Console]::Error.WriteLine('REMOTE_DETAIL_1');"
+        "[Console]::Error.WriteLine('REMOTE_DETAIL_2'); exit 23"
+    )
+    script = (
+        "$ErrorActionPreference='Stop'\n"
+        + function_source
+        + "\ntry { Invoke-NativeCaptured 'powershell.exe' "
+        + "@('-NoProfile','-NonInteractive','-Command',\""
+        + child
+        + "\") 'Synthetic remote' } catch { "
+        + "Write-Output ('CAUGHT:' + $_.Exception.Message) }"
+    )
+    result = subprocess.run(
+        [executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "REMOTE_DETAIL_1" in result.stdout
+    assert "REMOTE_DETAIL_2" in result.stdout
+    assert "CAUGHT:Synthetic remote failed with exit code 23." in result.stdout
 
 
 def test_remote_task_never_forces_termination_and_captures_result_first() -> None:

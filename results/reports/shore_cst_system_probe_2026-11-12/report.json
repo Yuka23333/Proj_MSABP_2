@@ -1,0 +1,54 @@
+{
+  "completed_utc": "2026-11-12T20:31:35.982713+00:00",
+  "control_mode_was_present": false,
+  "cst_interface_origin": "C:\\Program Files (x86)\\CST Studio Suite 2025\\AMD64\\python_cst_libraries\\cst\\interface\\__init__.py",
+  "environment_closed": true,
+  "error_message": "",
+  "error_type": null,
+  "host_name": "CoconutG2",
+  "identity": "nt authority\\system",
+  "opened": true,
+  "process_id": 19032,
+  "processes_after": [
+    {
+      "name": "cstd.exe",
+      "pid": 6880
+    },
+    {
+      "name": "CSTDCMainController_AMD64.exe",
+      "pid": 4376
+    },
+    {
+      "name": "CSTDCSolverServer_AMD64.exe",
+      "pid": 4368
+    }
+  ],
+  "processes_before": [
+    {
+      "name": "cstd.exe",
+      "pid": 6880
+    },
+    {
+      "name": "CSTDCMainController_AMD64.exe",
+      "pid": 4376
+    },
+    {
+      "name": "CSTDCSolverServer_AMD64.exe",
+      "pid": 4368
+    }
+  ],
+  "project_closed": true,
+  "project_copy": "C:\\ProgramData\\ShorePrincess\\project-msabp\\diagnostics\\cst-system-open-3c67b8ea5a0c4296b7fcfbef33c03bdd\\workspace\\model\\msa-bp.cst",
+  "project_copy_sha256_after": "d1962a2d16f976b7d1e4e9eb6d44baf1a460ae324897b4b2c892c0109715d3a8",
+  "project_copy_sha256_before": "d1962a2d16f976b7d1e4e9eb6d44baf1a460ae324897b4b2c892c0109715d3a8",
+  "python_executable": "C:\\Users\\telecom\\miniforge3\\envs\\maid\\python.exe",
+  "python_version": "3.11.15",
+  "schema": "msabp.cst-system-open-probe",
+  "schema_version": 1,
+  "session_id": 0,
+  "source_project": "D:\\Academic\\Proj_MSABP_2\\simulations\\models\\msa-bp.cst",
+  "source_sha256_after": "d1962a2d16f976b7d1e4e9eb6d44baf1a460ae324897b4b2c892c0109715d3a8",
+  "source_sha256_before": "d1962a2d16f976b7d1e4e9eb6d44baf1a460ae324897b4b2c892c0109715d3a8",
+  "started_utc": "2026-11-12T20:31:24.336587+00:00",
+  "success": true
+}

@@ -8,7 +8,8 @@ param(
     [string]$ExpectedProjectSha256 = 'd1962a2d16f976b7d1e4e9eb6d44baf1a460ae324897b4b2c892c0109715d3a8',
     [ValidateRange(30, 600)]
     [int]$TimeoutSeconds = 180,
-    [switch]$Execute
+    [switch]$Execute,
+    [switch]$PreflightOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,18 +55,51 @@ function ConvertTo-EncodedCommand([string]$Script) {
     return $encoded
 }
 
-function Invoke-ShoreCommand([string]$ControlPath, [string]$NodeName, [string]$Script) {
-    $encoded = ConvertTo-EncodedCommand $Script
-    $output = @(
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ControlPath `
-            -Target $NodeName `
-            -Command "pwsh -NoLogo -NoProfile -NonInteractive -EncodedCommand $encoded" 2>&1
-    )
-    $exitCode = $LASTEXITCODE
-    $output | ForEach-Object { Write-Output $_ }
-    if ($exitCode -ne 0) {
-        throw "Remote Shore command failed with exit code $exitCode."
+function Invoke-NativeCaptured(
+    [string]$FilePath,
+    [string[]]$ArgumentList,
+    [string]$FailureLabel
+) {
+    $previousPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell 5.1 promotes native stderr to NativeCommandError.
+        # Continue locally so every line and the real exit code are captured.
+        $ErrorActionPreference = 'Continue'
+        $output = @(& $FilePath @ArgumentList 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
     }
+    $output | ForEach-Object { Write-Output ([string]$_) }
+    if ($exitCode -ne 0) {
+        throw "$FailureLabel failed with exit code $exitCode."
+    }
+}
+
+function Assert-ShoreOnline([string]$ControlPath, [string]$NodeName) {
+    $arguments = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ControlPath,
+        '-Target', $NodeName, '-Command', 'exit 0'
+    )
+    Invoke-NativeCaptured 'powershell.exe' $arguments 'Shore identity/online gate'
+}
+
+function Invoke-ShoreCommand(
+    [string]$PlinkPath,
+    [string]$IdentityPath,
+    $Node,
+    [string]$Fingerprint,
+    [string]$Script
+) {
+    $encoded = ConvertTo-EncodedCommand $Script
+    $remoteCommand = "pwsh -NoLogo -NoProfile -NonInteractive -EncodedCommand $encoded"
+    $arguments = @(
+        '-batch', '-no-antispoof', '-T', '-ssh', '-4', '-P', ([string]$Node.Port),
+        '-noagent', '-a', '-x', '-noshare', '-no-trivial-auth',
+        '-i', $IdentityPath, '-hostkey', $Fingerprint,
+        '-l', ([string]$Node.UserName), ([string]$Node.Address), $remoteCommand
+    )
+    Invoke-NativeCaptured $PlinkPath $arguments 'Remote Shore command'
 }
 
 function Assert-PlainRemoteValue([string]$Value) {
@@ -78,18 +112,21 @@ function Assert-PlainRemoteValue([string]$Value) {
 $shoreRoot = Find-ShoreControlRoot
 $control = Join-Path $shoreRoot 'Control.ps1'
 $nodePath = Join-Path $shoreRoot ('nodes\' + $Target.ToLowerInvariant() + '.json')
+$plink = Join-Path $shoreRoot 'bin\plink.exe'
 $pscp = Join-Path $shoreRoot 'bin\pscp.exe'
 $identity = Join-Path $shoreRoot 'identity\controller.ppk'
-foreach ($path in @($control, $nodePath, $pscp, $identity)) {
+foreach ($path in @($control, $nodePath, $plink, $pscp, $identity)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Required Shore key file is missing: $path"
     }
 }
 
-$signature = Get-AuthenticodeSignature -LiteralPath $pscp
-if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
-    $signature.SignerCertificate.Subject -cnotmatch '^CN=Simon Tatham,') {
-    throw 'The Shore PSCP executable does not have the expected valid publisher signature.'
+foreach ($binary in @($plink, $pscp)) {
+    $signature = Get-AuthenticodeSignature -LiteralPath $binary
+    if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+        $signature.SignerCertificate.Subject -cnotmatch '^CN=Simon Tatham,') {
+        throw "The Shore $([IO.Path]::GetFileName($binary)) executable does not have the expected valid publisher signature."
+    }
 }
 $node = Get-Content -LiteralPath $nodePath -Raw | ConvertFrom-Json
 if ($node.Version -ne 1 -or $node.HostName -cne $Target -or $node.UserName -cne 'telecom' -or
@@ -128,9 +165,13 @@ $plan = [ordered]@{
     runs_solver = $false
     preserves_evidence = $true
     force_terminates_processes = $false
+    read_only_preflight = [bool]$PreflightOnly
 }
 
-if (-not $Execute) {
+if ($Execute -and $PreflightOnly) {
+    throw 'Choose either -Execute or -PreflightOnly, not both.'
+}
+if (-not $Execute -and -not $PreflightOnly) {
     $plan | ConvertTo-Json -Depth 5
     Write-Host 'PLAN ONLY. Re-run with -Execute only after explicit approval to start CST as SYSTEM.'
     exit 0
@@ -140,45 +181,81 @@ foreach ($value in @($PythonPath, $ProjectPath, $remoteUploadRoot, $remoteEviden
     Assert-PlainRemoteValue $value
 }
 
-$preflight = @'
+$audit = @'
 $ErrorActionPreference = 'Stop'
 $python = '__PYTHON__'
 $project = '__PROJECT__'
 $expectedProject = '__PROJECT_HASH__'
-$uploadRoot = '__UPLOAD_ROOT__'
-$evidenceRoot = '__EVIDENCE_ROOT__'
-foreach ($path in @($uploadRoot, $evidenceRoot)) {
-    if (Test-Path -LiteralPath $path) { throw "Fresh probe path already exists: $path" }
+$knownInfrastructure = @{
+    'CSTDCSolverServer_AMD64.exe' = 'C:\Program Files (x86)\CST Studio Suite 2025\AMD64\DC Solver Server\CSTDCSolverServer_AMD64.exe'
+    'CSTDCMainController_AMD64.exe' = 'C:\Program Files (x86)\CST Studio Suite 2025\AMD64\DC Main Controller\CSTDCMainController_AMD64.exe'
+    'cstd.exe' = 'C:\Program Files (x86)\CST Studio Suite 2025\License Manager\cstd.exe'
 }
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'Maid Python is missing.' }
 if (-not (Test-Path -LiteralPath $project -PathType Leaf)) { throw 'CST template is missing.' }
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath $project).Hash.ToLowerInvariant() -cne $expectedProject) {
     throw 'CST template differs from the approved read-only preflight hash.'
 }
-$existing = @(Get-CimInstance Win32_Process | Where-Object {
+$cstNamed = @(Get-CimInstance Win32_Process | Where-Object {
     $_.Name -match '(?i)cst|designenvironment|dbstorage|solver'
 })
-if ($existing.Count) { throw 'A CST-related process already exists; refusing to prepare the probe.' }
-$null = New-Item -ItemType Directory -Path $uploadRoot
-$null = New-Item -ItemType Directory -Path $evidenceRoot
+$infrastructure = @($cstNamed | Where-Object {
+    $knownInfrastructure.ContainsKey([string]$_.Name) -and
+    [string]$_.ExecutablePath -ieq $knownInfrastructure[[string]$_.Name]
+})
+$existing = @($cstNamed | Where-Object {
+    -not (
+        $knownInfrastructure.ContainsKey([string]$_.Name) -and
+        [string]$_.ExecutablePath -ieq $knownInfrastructure[[string]$_.Name]
+    )
+})
+if ($existing.Count) {
+    throw ('A CST-related process already exists: ' + (($existing | ForEach-Object { $_.Name + ':' + $_.ProcessId }) -join ', '))
+}
 [ordered]@{
-    schema = 'msabp.cst-system-open-probe-preflight'
+    schema = 'msabp.cst-system-open-probe-read-only-preflight'
     schema_version = 1
     identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
     session_id = (Get-Process -Id $PID).SessionId
-    upload_root = $uploadRoot
-    evidence_root = $evidenceRoot
     source_project_sha256 = $expectedProject
+    allowed_infrastructure = @($infrastructure | ForEach-Object {
+        [ordered]@{ name = $_.Name; pid = [int]$_.ProcessId; path = $_.ExecutablePath }
+    })
 } | ConvertTo-Json -Compress
 '@
-$preflight = $preflight.Replace('__PYTHON__', $PythonPath).
+$audit = $audit.Replace('__PYTHON__', $PythonPath).
     Replace('__PROJECT__', $ProjectPath).
-    Replace('__PROJECT_HASH__', $ExpectedProjectSha256).
-    Replace('__UPLOAD_ROOT__', $remoteUploadRoot).
-    Replace('__EVIDENCE_ROOT__', $remoteEvidenceRoot)
+    Replace('__PROJECT_HASH__', $ExpectedProjectSha256)
 
+Write-Host 'Checking the Shore node identity and online state.'
+Assert-ShoreOnline $control $Target
+Write-Host 'Running the read-only CST preflight. No directory, task, or process is created.'
+Invoke-ShoreCommand $plink $identity $node $fingerprint $audit
+if ($PreflightOnly) {
+    Write-Host 'READ-ONLY PREFLIGHT COMPLETE. CST was not started.'
+    exit 0
+}
+
+$prepare = @'
+$ErrorActionPreference = 'Stop'
+$uploadRoot = '__UPLOAD_ROOT__'
+$evidenceRoot = '__EVIDENCE_ROOT__'
+foreach ($path in @($uploadRoot, $evidenceRoot)) {
+    if (Test-Path -LiteralPath $path) { throw "Fresh probe path already exists: $path" }
+}
+$null = New-Item -ItemType Directory -Path $uploadRoot
+$null = New-Item -ItemType Directory -Path $evidenceRoot
+[ordered]@{
+    schema = 'msabp.cst-system-open-probe-staging'
+    schema_version = 1
+    upload_root = $uploadRoot
+    evidence_root = $evidenceRoot
+} | ConvertTo-Json -Compress
+'@
+$prepare = $prepare.Replace('__UPLOAD_ROOT__', $remoteUploadRoot).
+    Replace('__EVIDENCE_ROOT__', $remoteEvidenceRoot)
 Write-Host 'Preparing fresh remote probe staging (no CST is started in this step).'
-Invoke-ShoreCommand $control $Target $preflight
+Invoke-ShoreCommand $plink $identity $node $fingerprint $prepare
 
 $remoteUploadSpec = '{0}@{1}:{2}/' -f $node.UserName, $node.Address, $remoteUploadRoot.Replace('\', '/')
 $pscpArguments = @(
@@ -187,10 +264,7 @@ $pscpArguments = @(
     $probeSource, $remoteHelperSource, $remoteUploadSpec
 )
 Write-Host 'Uploading the hashed probe sources through the Shore key.'
-& $pscp @pscpArguments
-if ($LASTEXITCODE -ne 0) {
-    throw "PSCP upload failed with exit code $LASTEXITCODE. Remote staging and evidence were preserved."
-}
+Invoke-NativeCaptured $pscp $pscpArguments 'PSCP upload (remote staging and evidence preserved)'
 
 $launch = @'
 $ErrorActionPreference = 'Stop'
@@ -229,4 +303,4 @@ $launch = $launch.Replace('__UPLOAD_ROOT__', $remoteUploadRoot).
     Replace('__TIMEOUT__', [string]$TimeoutSeconds)
 
 Write-Host 'Starting the approved SYSTEM CST open/close probe. It does not run the solver.'
-Invoke-ShoreCommand $control $Target $launch
+Invoke-ShoreCommand $plink $identity $node $fingerprint $launch
