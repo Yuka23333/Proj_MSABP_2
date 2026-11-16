@@ -1,0 +1,847 @@
+{
+  "artifacts": {
+    "farfield_source": {
+      "path": "Farfield Source [1].ffs",
+      "sha256": "fa04b4e835d6ccf2a3ef01b526c0fe5be496247de9bc8e28368760da24100c01",
+      "size_bytes": 9642535
+    },
+    "manifest": {
+      "path": "manifest.json",
+      "sha256": "4ca09e23cbbaed7025587dcf6a986e7bf5ada0e232f2440ba7455767842cedc9",
+      "size_bytes": 30207
+    },
+    "rad_eff": {
+      "path": "Rad_Eff.csv",
+      "sha256": "68cc6a0b2fd0152aba75d883bdaacc329261524478cb4071cbb82dcf9ce26205",
+      "size_bytes": 2519
+    },
+    "s11": {
+      "path": "S11.csv",
+      "sha256": "85c692d3b4696ce317a38648ccc56c2570e47709bf38b234f5cee0aaeaa726b2",
+      "size_bytes": 58184
+    },
+    "tot_eff": {
+      "path": "Tot_Eff.csv",
+      "sha256": "161ba96661dc7c5e31fe7c8dfdf84ac201afd04b33158c471b5959bed91544bd",
+      "size_bytes": 2519
+    }
+  },
+  "case_directory": "C:\\ProgramData\\ShorePrincess\\project-msabp\\diagnostics\\cst-system-solve-50fffd9d668640f08b7b5cdce49580e9\\workspace\\results\\case_system_solve",
+  "completed_utc": "2026-11-16T18:33:23.281465+00:00",
+  "control_mode_was_present": false,
+  "cst_interface_origin": "C:\\Program Files (x86)\\CST Studio Suite 2025\\AMD64\\python_cst_libraries\\cst\\interface\\__init__.py",
+  "curves": {
+    "rad_eff": {
+      "frequency_max": 6.0,
+      "frequency_min": 2.0,
+      "point_count": 41,
+      "value_max": -0.17511817,
+      "value_min": -2.910204
+    },
+    "s11": {
+      "frequency_max": 6.0,
+      "frequency_min": 2.0,
+      "point_count": 1001,
+      "value_max": -4.915437e-07,
+      "value_min": -40.250021
+    },
+    "tot_eff": {
+      "frequency_max": 6.0,
+      "frequency_min": 2.0,
+      "point_count": 41,
+      "value_max": -0.22903756,
+      "value_min": -13.540392
+    }
+  },
+  "elapsed_seconds": 76.85048539999843,
+  "environment_closed": true,
+  "error_message": "",
+  "error_type": null,
+  "host_name": "CoconutG2",
+  "identity": "nt authority\\system",
+  "opened": true,
+  "process_id": 15572,
+  "processes_after": [
+    {
+      "name": "cstd.exe",
+      "pid": 4540
+    },
+    {
+      "name": "CSTDCMainController_AMD64.exe",
+      "pid": 4784
+    },
+    {
+      "name": "CSTDCSolverServer_AMD64.exe",
+      "pid": 4748
+    }
+  ],
+  "processes_before": [
+    {
+      "name": "cstd.exe",
+      "pid": 4540
+    },
+    {
+      "name": "CSTDCMainController_AMD64.exe",
+      "pid": 4784
+    },
+    {
+      "name": "CSTDCSolverServer_AMD64.exe",
+      "pid": 4748
+    }
+  ],
+  "project_closed": true,
+  "project_copy": "C:\\ProgramData\\ShorePrincess\\project-msabp\\diagnostics\\cst-system-solve-50fffd9d668640f08b7b5cdce49580e9\\workspace\\model\\msa-bp.cst",
+  "project_copy_sha256_after": "10245cf260beed48956199d8a6ed3de5b4282f3cca5f1cd147336f5b9b11d47b",
+  "project_copy_sha256_before": "d1962a2d16f976b7d1e4e9eb6d44baf1a460ae324897b4b2c892c0109715d3a8",
+  "python_executable": "C:\\Users\\telecom\\miniforge3\\envs\\maid\\python.exe",
+  "python_version": "3.11.15",
+  "schema": "msabp.cst-system-solve-probe",
+  "schema_version": 1,
+  "session_id": 0,
+  "solver_completed": true,
+  "solver_started": true,
+  "source_archive": "C:\\ProgramData\\ShorePrincess\\project-msabp\\diagnostics\\cst-system-solve-50fffd9d668640f08b7b5cdce49580e9\\source_bundle.zip",
+  "source_archive_sha256": "44b5bc0cc67deab7235a3209380310da3201fab4a54a74f74110a8804c1ae3d4",
+  "source_bundle_files": [
+    {
+      "path": "scripts/automation/antenna_sampler.py",
+      "sha256": "c4c31b02a6e3da2a4e4c9563a5b8ec1dbbbd7796ca879f1fb8481169fba32e05",
+      "size_bytes": 17162
+    },
+    {
+      "path": "scripts/automation/check_sampled_curve_intersections.py",
+      "sha256": "e5ff08ab28b25b99e6e33b95b759639b7b0857376873eb7fbc6609bc19c2f176",
+      "size_bytes": 10597
+    },
+    {
+      "path": "scripts/automation/cst_build_msabp_geometry.py",
+      "sha256": "390ff6dc0c82e01220bf5ccafe6eab57a0d1b5ae660c4182166c758226c0247d",
+      "size_bytes": 49958
+    },
+    {
+      "path": "scripts/automation/cst_build_msabp_geometry_tree.py",
+      "sha256": "c15341ee715f1fb8c124fde91a41f95dba03babb08405f3e17f4f4192b8ede2c",
+      "size_bytes": 13985
+    },
+    {
+      "path": "scripts/automation/cst_conductor_components.py",
+      "sha256": "1db68b7d8e3c56383e8e10a91f7efd8d5c2048a01bff0a6996bfa2923fd59ed1",
+      "size_bytes": 4375
+    },
+    {
+      "path": "scripts/automation/cst_generate_polygen.py",
+      "sha256": "d894f363cd83a0423ccfa5495ac23c9110ff33c6f5b70dac5fba1b4a510593e6",
+      "size_bytes": 7647
+    },
+    {
+      "path": "scripts/automation/cst_run_and_export_s11.py",
+      "sha256": "2d206887e3ec8963a88cdb3e4abc2f3c0cc0ba513932140e550c8394cb686337",
+      "size_bytes": 19041
+    },
+    {
+      "path": "scripts/automation/cst_setup_propagation_pair.py",
+      "sha256": "aab971f201a9bb8abe7a644a85135d701563938ef8cdba672e1ec05246d0cb9c",
+      "size_bytes": 7008
+    },
+    {
+      "path": "scripts/automation/cst_test_outgrown_branch.py",
+      "sha256": "7b54a460f32080d7f272042379ee8346f6743b9b5c407a8474c856e2e3a31854",
+      "size_bytes": 7819
+    },
+    {
+      "path": "scripts/automation/sample_geometry_labels.py",
+      "sha256": "e70a6f9fb8b899779321b26ae8b9839388737580da5cbddba0607b6e0ee752db",
+      "size_bytes": 9611
+    },
+    {
+      "path": "scripts/automation/scan_geometry_feasibility.py",
+      "sha256": "2b8032e0890ed5977d05e04be51d9f809dc6175da321a4e695d27bc35c6b38c1",
+      "size_bytes": 13226
+    },
+    {
+      "path": "scripts/geometry/antenna_closed_curves.py",
+      "sha256": "7b52f3aad60763aaaac406e1993418d5fc1e33119694cfd0c8cd124eb72f6376",
+      "size_bytes": 2378
+    },
+    {
+      "path": "scripts/geometry/antenna_outline.py",
+      "sha256": "b3b04fc73a246ed11016773bb71ea5b06aa3ffa384e94ecf723f1cee4f42987e",
+      "size_bytes": 183704
+    },
+    {
+      "path": "scripts/geometry/antenna_polygon_export.py",
+      "sha256": "388bcd27c0f350be37a414fee3594781f33797ef13c7c2f68196d843b3482c95",
+      "size_bytes": 7938
+    },
+    {
+      "path": "scripts/geometry/audit_tree_manufacturing.py",
+      "sha256": "9e992e4ed2e7c24dbcd5b0f79cdab39005a4b12d2a38d89d4f65e7f390f40be3",
+      "size_bytes": 5880
+    },
+    {
+      "path": "scripts/geometry/branch_shaper_figures.py",
+      "sha256": "c0178ee0bcf4cf7c8f840b3f1e0cf60c88b9a80ba4d4e8b8e6ebf23a1b96d1e4",
+      "size_bytes": 12534
+    },
+    {
+      "path": "scripts/geometry/browse_illegal_samples.py",
+      "sha256": "bcfa00d30ea9f28a5d2a0d224f9ddae4f45b7146f44262a0d58416ef1ea17a81",
+      "size_bytes": 11811
+    },
+    {
+      "path": "scripts/geometry/conductor_components.py",
+      "sha256": "ae516e169836ca21dd827c277eb5ae71baf687bb9753ead0c42f1f20bf5deca3",
+      "size_bytes": 3080
+    },
+    {
+      "path": "scripts/geometry/manufacturing.py",
+      "sha256": "98b65588f0295dde75622c6bb711cca2ce0c8a303281b2a406ca731f5f7552d2",
+      "size_bytes": 17457
+    },
+    {
+      "path": "scripts/geometry/prepare_copper_island_case.py",
+      "sha256": "7c26bf1dbb72b8832ce2bed7916586b7edf88db58f4506f918955212268df44c",
+      "size_bytes": 6265
+    },
+    {
+      "path": "scripts/geometry/prepare_tree_topology_cases.py",
+      "sha256": "6c57f982c7776b3d7ee74518ff5876e7783561e7fd72a9e3d822f77104ccaa6d",
+      "size_bytes": 5469
+    },
+    {
+      "path": "scripts/geometry/shapely_antenna_demo.py",
+      "sha256": "19f78ce8cc9739ab49742d56b6fcdf537291ae3f959fc60c7a3175aa0b5d068b",
+      "size_bytes": 34471
+    },
+    {
+      "path": "scripts/geometry/shapely_antenna_model.py",
+      "sha256": "6e5a853443917ae896811d0fb3f6de9c82821b7a0aecfbe769463b29955303ae",
+      "size_bytes": 19284
+    },
+    {
+      "path": "scripts/geometry/shapely_antenna_tree_autoplay.py",
+      "sha256": "38dcd6f65f53169f46d852b37514f276ab276d00e434001ec3c5a9c8547b197a",
+      "size_bytes": 7909
+    },
+    {
+      "path": "scripts/geometry/shapely_antenna_tree_demo.py",
+      "sha256": "8637efabd19591a3fa559ce8e691a9a9ee46a2529e15fcd3c5a2056d568405cd",
+      "size_bytes": 19230
+    },
+    {
+      "path": "scripts/geometry/shapely_antenna_tree_model.py",
+      "sha256": "8e3c3c4667e213de01a6cd99d9699bf41c30389c0ddd1a67f05c4f8f49d3c3dd",
+      "size_bytes": 23958
+    },
+    {
+      "path": "scripts/geometry/shapely_rectangle_test.py",
+      "sha256": "e3aad965fe8f9ad878d95e5412377f046d49b8c4b27902695de37b00079c57c9",
+      "size_bytes": 24970
+    },
+    {
+      "path": "scripts/geometry/validate_main_slot_coverage.py",
+      "sha256": "77092a6c9d7213507b0b8ce09ff50be17b498127103aa501c55b92c50395f071",
+      "size_bytes": 4905
+    },
+    {
+      "path": "scripts/geometry/validate_tree_manufacturing.py",
+      "sha256": "2a20b8d147a8a0594a1e13900026a9b14bc63d20b6303dc9fd73c236bcd66af7",
+      "size_bytes": 3175
+    },
+    {
+      "path": "source_manifest.json",
+      "sha256": "4bd66f365f028091cd0662d71ae40c04495788b14cc0375a7d3f7a532de32d60",
+      "size_bytes": 19030
+    },
+    {
+      "path": "src/msabp_opt/__init__.py",
+      "sha256": "df1391f16111000d44dbed9a226dc21cd06098c35e25c8913f2fdacaeae7dcfc",
+      "size_bytes": 81
+    },
+    {
+      "path": "src/msabp_opt/simulation/__init__.py",
+      "sha256": "86e6cff1cdb6e7711a3fabf88f3ab2174118a829561542e0251595e387eab915",
+      "size_bytes": 62
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/__init__.py",
+      "sha256": "3f2b8bf2821910b0242312f545f33bfd9ec3118914b7d8a94456f60c6e6f58be",
+      "size_bytes": 1432
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/bell.py",
+      "sha256": "aaaa0a4db860d13b8995d3a6a703283ddd49bb39b8b8d66115d7e279f149093f",
+      "size_bytes": 30673
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/case_runner.py",
+      "sha256": "928acbb8661093be224992e577450ed7f0fa972bbd3f8d48c335e957ce7594df",
+      "size_bytes": 16414
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/case_runner_tree.py",
+      "sha256": "087e30a22b9233cf0f7dc6b4b38ab3d628b1fb8522d08ae433662310ea0643e5",
+      "size_bytes": 7166
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/config.py",
+      "sha256": "669c0222d9bdde942086c40acf66d223e087fe2d43d0d1b8117ce6f956381246",
+      "size_bytes": 14361
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_authority.py",
+      "sha256": "cd1db47506d02bd817ae87bf934dfa2345ee9869ee9ea4f61640797af876ef61",
+      "size_bytes": 53836
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_collector.py",
+      "sha256": "ef8a99dc5b972c7cd2c55e8f8114ee774c8e3074724135639ca45a11235d5874",
+      "size_bytes": 9552
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_failure.py",
+      "sha256": "e9cf0931bfd432a1f695543648b767a868877614b479d381c04f943a3c6c9357",
+      "size_bytes": 16926
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_job_auth.py",
+      "sha256": "2b0ef973a40b7a8b8b4ed68a69a346ed7b9327c91a05f6512a5e6947bcd44cd5",
+      "size_bytes": 13480
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_job_http.py",
+      "sha256": "b6ed9cd13639cfcf426cb1b644334a998e7090551bdc2c132652739194c9f60d",
+      "size_bytes": 21189
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_job_material.py",
+      "sha256": "2b16d6c9d10a24b6aab92eec7f22705ef7eb2ee707bb339f03119e4b3160ad99",
+      "size_bytes": 10922
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_policy.py",
+      "sha256": "846024915bc1849772735ca1e727e4a60d59e68f81e523f688415b0650f6017f",
+      "size_bytes": 1173
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_release.py",
+      "sha256": "ac50426969aca86faeb72db93e6efce3869872d006f30081e69942f1e884f33a",
+      "size_bytes": 11997
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_remote_bell.py",
+      "sha256": "2db6c38199d69f0d4e66e3ed2e93ab08008407ddac0cb7c52198886f21e63df9",
+      "size_bytes": 38462
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_remote_controller.py",
+      "sha256": "45f1ed42342de0f335fcdaa2d44564fc21d4c038477a1d8797789841977b0461",
+      "size_bytes": 39822
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_remote_http.py",
+      "sha256": "008821fbd5f5f2084efa7b7318135e79c9c2870ddcf39abb7c0c353085ca9706",
+      "size_bytes": 30246
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_remote_prepare.py",
+      "sha256": "bebb0b2b2b346653fb9ed50730b0f871be586c8d946747b35d5c54f132a96c6a",
+      "size_bytes": 13255
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_remote_session.py",
+      "sha256": "048d38e1faa290be9d1a36325702ffce6966e9a4fb52b6ac72866dd1ee89bd2c",
+      "size_bytes": 9004
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_remote_worker.py",
+      "sha256": "5eaf701a1a506e278f64a06e8efb7eb59c271ef3193d0e1d4f72e6a5f863042d",
+      "size_bytes": 33678
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_rpc.py",
+      "sha256": "ea1ff9bb1947bef6685c04e27494e40667424d51eedf2989ece66a9eaaa7bcf0",
+      "size_bytes": 26775
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_supervisor.py",
+      "sha256": "eb72963e29eb4135919a37ef3f97a2cf17c6f11a2159104943e29e92a359a9d5",
+      "size_bytes": 16926
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_supervisor_controller.py",
+      "sha256": "c4f083dfe00375831d47bd044b467d1291d0df27d6a75635e68b850e5ae0bedc",
+      "size_bytes": 3473
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_supervisor_runtime.py",
+      "sha256": "928e9be2f10f93e6a08bf64c8344f5d46c9e70e8277e0310d99debfc0c1e5ca5",
+      "size_bytes": 41744
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_synthetic.py",
+      "sha256": "cce85b07722ef5d55bd9f4fd20b987556975fd55b30c2119cbe8039b5a0381a3",
+      "size_bytes": 2563
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_usb.py",
+      "sha256": "e6c48deada6338269877d912287d1f68d012148b84157e53c2bac816a3a96a66",
+      "size_bytes": 9119
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_winjob.py",
+      "sha256": "b5341a74a51433a89db8901e98cd8166c67a774e3b209db6a6a3b2efee9225d6",
+      "size_bytes": 19456
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/control_worker.py",
+      "sha256": "ae39717b297987ead525ed0f1cbffff94ad1f83e224ca3aa256f6bc22cef3809",
+      "size_bytes": 22149
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/http_api.py",
+      "sha256": "fc8da1b3f93dc0ed59e69ac811e2dbb78ecc80ecc2456e31985b9b0cb07497f4",
+      "size_bytes": 14830
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/maid.py",
+      "sha256": "38bdedf2226507dd55fc86384f71e040dcb0ec2a7c02e2f43de3acfeecb4452a",
+      "size_bytes": 40201
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/off_duty.py",
+      "sha256": "eaa6515968c7798f3db8c81b05a1d7112338589fe9ce9c8cb0b43fb4401008ae",
+      "size_bytes": 7628
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/princess.py",
+      "sha256": "fd0a67312101451866165c3c33b7a16151b865a51bdfc057c61b18d7ac30aa7d",
+      "size_bytes": 36032
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/propagation_case_runner.py",
+      "sha256": "2f0df0a5bc6812b36fa25a3881c1c96c555bb69d576a2c34d17f9b329e47209e",
+      "size_bytes": 14254
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/propagation_case_runner_tree.py",
+      "sha256": "a6f49a2325a3843cf000e9c125b4290ad81be0130d28e7a1b3dfabfe01a6007e",
+      "size_bytes": 13463
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/protocol.py",
+      "sha256": "d19f2fc2114d45fb1e8545fd7566f46b3ee1fb82cebfb4e2e8ce22087ef9b881",
+      "size_bytes": 6137
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/runtime.py",
+      "sha256": "dbd5de26d19eaf5af2dd384d786d4c0967c0bb3e5c2fdbdf41bf4ec8519cf5da",
+      "size_bytes": 57790
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/shore_usb_ssh.py",
+      "sha256": "e4f3f25e4d86d3d92286adbbb5ffbfa708a22af4673e989660c5939925963448",
+      "size_bytes": 11373
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/state.py",
+      "sha256": "ecc33ba16fd25e7da0b08926903825ad433865da9ada4e4012e443ef934c9515",
+      "size_bytes": 104576
+    },
+    {
+      "path": "src/msabp_opt/simulation/distributed/transport.py",
+      "sha256": "c56b8dbbc3f748f61db37b26aa735c611279a208e34221fe139b57d591870c7f",
+      "size_bytes": 43463
+    }
+  ],
+  "source_manifest": {
+    "files": [
+      {
+        "path": "scripts/automation/antenna_sampler.py",
+        "sha256": "c4c31b02a6e3da2a4e4c9563a5b8ec1dbbbd7796ca879f1fb8481169fba32e05",
+        "size_bytes": 17162
+      },
+      {
+        "path": "scripts/automation/check_sampled_curve_intersections.py",
+        "sha256": "e5ff08ab28b25b99e6e33b95b759639b7b0857376873eb7fbc6609bc19c2f176",
+        "size_bytes": 10597
+      },
+      {
+        "path": "scripts/automation/cst_build_msabp_geometry.py",
+        "sha256": "390ff6dc0c82e01220bf5ccafe6eab57a0d1b5ae660c4182166c758226c0247d",
+        "size_bytes": 49958
+      },
+      {
+        "path": "scripts/automation/cst_build_msabp_geometry_tree.py",
+        "sha256": "c15341ee715f1fb8c124fde91a41f95dba03babb08405f3e17f4f4192b8ede2c",
+        "size_bytes": 13985
+      },
+      {
+        "path": "scripts/automation/cst_conductor_components.py",
+        "sha256": "1db68b7d8e3c56383e8e10a91f7efd8d5c2048a01bff0a6996bfa2923fd59ed1",
+        "size_bytes": 4375
+      },
+      {
+        "path": "scripts/automation/cst_generate_polygen.py",
+        "sha256": "d894f363cd83a0423ccfa5495ac23c9110ff33c6f5b70dac5fba1b4a510593e6",
+        "size_bytes": 7647
+      },
+      {
+        "path": "scripts/automation/cst_run_and_export_s11.py",
+        "sha256": "2d206887e3ec8963a88cdb3e4abc2f3c0cc0ba513932140e550c8394cb686337",
+        "size_bytes": 19041
+      },
+      {
+        "path": "scripts/automation/cst_setup_propagation_pair.py",
+        "sha256": "aab971f201a9bb8abe7a644a85135d701563938ef8cdba672e1ec05246d0cb9c",
+        "size_bytes": 7008
+      },
+      {
+        "path": "scripts/automation/cst_test_outgrown_branch.py",
+        "sha256": "7b54a460f32080d7f272042379ee8346f6743b9b5c407a8474c856e2e3a31854",
+        "size_bytes": 7819
+      },
+      {
+        "path": "scripts/automation/sample_geometry_labels.py",
+        "sha256": "e70a6f9fb8b899779321b26ae8b9839388737580da5cbddba0607b6e0ee752db",
+        "size_bytes": 9611
+      },
+      {
+        "path": "scripts/automation/scan_geometry_feasibility.py",
+        "sha256": "2b8032e0890ed5977d05e04be51d9f809dc6175da321a4e695d27bc35c6b38c1",
+        "size_bytes": 13226
+      },
+      {
+        "path": "scripts/geometry/antenna_closed_curves.py",
+        "sha256": "7b52f3aad60763aaaac406e1993418d5fc1e33119694cfd0c8cd124eb72f6376",
+        "size_bytes": 2378
+      },
+      {
+        "path": "scripts/geometry/antenna_outline.py",
+        "sha256": "b3b04fc73a246ed11016773bb71ea5b06aa3ffa384e94ecf723f1cee4f42987e",
+        "size_bytes": 183704
+      },
+      {
+        "path": "scripts/geometry/antenna_polygon_export.py",
+        "sha256": "388bcd27c0f350be37a414fee3594781f33797ef13c7c2f68196d843b3482c95",
+        "size_bytes": 7938
+      },
+      {
+        "path": "scripts/geometry/audit_tree_manufacturing.py",
+        "sha256": "9e992e4ed2e7c24dbcd5b0f79cdab39005a4b12d2a38d89d4f65e7f390f40be3",
+        "size_bytes": 5880
+      },
+      {
+        "path": "scripts/geometry/branch_shaper_figures.py",
+        "sha256": "c0178ee0bcf4cf7c8f840b3f1e0cf60c88b9a80ba4d4e8b8e6ebf23a1b96d1e4",
+        "size_bytes": 12534
+      },
+      {
+        "path": "scripts/geometry/browse_illegal_samples.py",
+        "sha256": "bcfa00d30ea9f28a5d2a0d224f9ddae4f45b7146f44262a0d58416ef1ea17a81",
+        "size_bytes": 11811
+      },
+      {
+        "path": "scripts/geometry/conductor_components.py",
+        "sha256": "ae516e169836ca21dd827c277eb5ae71baf687bb9753ead0c42f1f20bf5deca3",
+        "size_bytes": 3080
+      },
+      {
+        "path": "scripts/geometry/manufacturing.py",
+        "sha256": "98b65588f0295dde75622c6bb711cca2ce0c8a303281b2a406ca731f5f7552d2",
+        "size_bytes": 17457
+      },
+      {
+        "path": "scripts/geometry/prepare_copper_island_case.py",
+        "sha256": "7c26bf1dbb72b8832ce2bed7916586b7edf88db58f4506f918955212268df44c",
+        "size_bytes": 6265
+      },
+      {
+        "path": "scripts/geometry/prepare_tree_topology_cases.py",
+        "sha256": "6c57f982c7776b3d7ee74518ff5876e7783561e7fd72a9e3d822f77104ccaa6d",
+        "size_bytes": 5469
+      },
+      {
+        "path": "scripts/geometry/shapely_antenna_demo.py",
+        "sha256": "19f78ce8cc9739ab49742d56b6fcdf537291ae3f959fc60c7a3175aa0b5d068b",
+        "size_bytes": 34471
+      },
+      {
+        "path": "scripts/geometry/shapely_antenna_model.py",
+        "sha256": "6e5a853443917ae896811d0fb3f6de9c82821b7a0aecfbe769463b29955303ae",
+        "size_bytes": 19284
+      },
+      {
+        "path": "scripts/geometry/shapely_antenna_tree_autoplay.py",
+        "sha256": "38dcd6f65f53169f46d852b37514f276ab276d00e434001ec3c5a9c8547b197a",
+        "size_bytes": 7909
+      },
+      {
+        "path": "scripts/geometry/shapely_antenna_tree_demo.py",
+        "sha256": "8637efabd19591a3fa559ce8e691a9a9ee46a2529e15fcd3c5a2056d568405cd",
+        "size_bytes": 19230
+      },
+      {
+        "path": "scripts/geometry/shapely_antenna_tree_model.py",
+        "sha256": "8e3c3c4667e213de01a6cd99d9699bf41c30389c0ddd1a67f05c4f8f49d3c3dd",
+        "size_bytes": 23958
+      },
+      {
+        "path": "scripts/geometry/shapely_rectangle_test.py",
+        "sha256": "e3aad965fe8f9ad878d95e5412377f046d49b8c4b27902695de37b00079c57c9",
+        "size_bytes": 24970
+      },
+      {
+        "path": "scripts/geometry/validate_main_slot_coverage.py",
+        "sha256": "77092a6c9d7213507b0b8ce09ff50be17b498127103aa501c55b92c50395f071",
+        "size_bytes": 4905
+      },
+      {
+        "path": "scripts/geometry/validate_tree_manufacturing.py",
+        "sha256": "2a20b8d147a8a0594a1e13900026a9b14bc63d20b6303dc9fd73c236bcd66af7",
+        "size_bytes": 3175
+      },
+      {
+        "path": "src/msabp_opt/__init__.py",
+        "sha256": "df1391f16111000d44dbed9a226dc21cd06098c35e25c8913f2fdacaeae7dcfc",
+        "size_bytes": 81
+      },
+      {
+        "path": "src/msabp_opt/simulation/__init__.py",
+        "sha256": "86e6cff1cdb6e7711a3fabf88f3ab2174118a829561542e0251595e387eab915",
+        "size_bytes": 62
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/__init__.py",
+        "sha256": "3f2b8bf2821910b0242312f545f33bfd9ec3118914b7d8a94456f60c6e6f58be",
+        "size_bytes": 1432
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/bell.py",
+        "sha256": "aaaa0a4db860d13b8995d3a6a703283ddd49bb39b8b8d66115d7e279f149093f",
+        "size_bytes": 30673
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/case_runner.py",
+        "sha256": "928acbb8661093be224992e577450ed7f0fa972bbd3f8d48c335e957ce7594df",
+        "size_bytes": 16414
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/case_runner_tree.py",
+        "sha256": "087e30a22b9233cf0f7dc6b4b38ab3d628b1fb8522d08ae433662310ea0643e5",
+        "size_bytes": 7166
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/config.py",
+        "sha256": "669c0222d9bdde942086c40acf66d223e087fe2d43d0d1b8117ce6f956381246",
+        "size_bytes": 14361
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_authority.py",
+        "sha256": "cd1db47506d02bd817ae87bf934dfa2345ee9869ee9ea4f61640797af876ef61",
+        "size_bytes": 53836
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_collector.py",
+        "sha256": "ef8a99dc5b972c7cd2c55e8f8114ee774c8e3074724135639ca45a11235d5874",
+        "size_bytes": 9552
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_failure.py",
+        "sha256": "e9cf0931bfd432a1f695543648b767a868877614b479d381c04f943a3c6c9357",
+        "size_bytes": 16926
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_job_auth.py",
+        "sha256": "2b0ef973a40b7a8b8b4ed68a69a346ed7b9327c91a05f6512a5e6947bcd44cd5",
+        "size_bytes": 13480
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_job_http.py",
+        "sha256": "b6ed9cd13639cfcf426cb1b644334a998e7090551bdc2c132652739194c9f60d",
+        "size_bytes": 21189
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_job_material.py",
+        "sha256": "2b16d6c9d10a24b6aab92eec7f22705ef7eb2ee707bb339f03119e4b3160ad99",
+        "size_bytes": 10922
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_policy.py",
+        "sha256": "846024915bc1849772735ca1e727e4a60d59e68f81e523f688415b0650f6017f",
+        "size_bytes": 1173
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_release.py",
+        "sha256": "ac50426969aca86faeb72db93e6efce3869872d006f30081e69942f1e884f33a",
+        "size_bytes": 11997
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_remote_bell.py",
+        "sha256": "2db6c38199d69f0d4e66e3ed2e93ab08008407ddac0cb7c52198886f21e63df9",
+        "size_bytes": 38462
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_remote_controller.py",
+        "sha256": "45f1ed42342de0f335fcdaa2d44564fc21d4c038477a1d8797789841977b0461",
+        "size_bytes": 39822
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_remote_http.py",
+        "sha256": "008821fbd5f5f2084efa7b7318135e79c9c2870ddcf39abb7c0c353085ca9706",
+        "size_bytes": 30246
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_remote_prepare.py",
+        "sha256": "bebb0b2b2b346653fb9ed50730b0f871be586c8d946747b35d5c54f132a96c6a",
+        "size_bytes": 13255
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_remote_session.py",
+        "sha256": "048d38e1faa290be9d1a36325702ffce6966e9a4fb52b6ac72866dd1ee89bd2c",
+        "size_bytes": 9004
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_remote_worker.py",
+        "sha256": "5eaf701a1a506e278f64a06e8efb7eb59c271ef3193d0e1d4f72e6a5f863042d",
+        "size_bytes": 33678
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_rpc.py",
+        "sha256": "ea1ff9bb1947bef6685c04e27494e40667424d51eedf2989ece66a9eaaa7bcf0",
+        "size_bytes": 26775
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_supervisor.py",
+        "sha256": "eb72963e29eb4135919a37ef3f97a2cf17c6f11a2159104943e29e92a359a9d5",
+        "size_bytes": 16926
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_supervisor_controller.py",
+        "sha256": "c4f083dfe00375831d47bd044b467d1291d0df27d6a75635e68b850e5ae0bedc",
+        "size_bytes": 3473
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_supervisor_runtime.py",
+        "sha256": "928e9be2f10f93e6a08bf64c8344f5d46c9e70e8277e0310d99debfc0c1e5ca5",
+        "size_bytes": 41744
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_synthetic.py",
+        "sha256": "cce85b07722ef5d55bd9f4fd20b987556975fd55b30c2119cbe8039b5a0381a3",
+        "size_bytes": 2563
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_usb.py",
+        "sha256": "e6c48deada6338269877d912287d1f68d012148b84157e53c2bac816a3a96a66",
+        "size_bytes": 9119
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_winjob.py",
+        "sha256": "b5341a74a51433a89db8901e98cd8166c67a774e3b209db6a6a3b2efee9225d6",
+        "size_bytes": 19456
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/control_worker.py",
+        "sha256": "ae39717b297987ead525ed0f1cbffff94ad1f83e224ca3aa256f6bc22cef3809",
+        "size_bytes": 22149
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/http_api.py",
+        "sha256": "fc8da1b3f93dc0ed59e69ac811e2dbb78ecc80ecc2456e31985b9b0cb07497f4",
+        "size_bytes": 14830
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/maid.py",
+        "sha256": "38bdedf2226507dd55fc86384f71e040dcb0ec2a7c02e2f43de3acfeecb4452a",
+        "size_bytes": 40201
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/off_duty.py",
+        "sha256": "eaa6515968c7798f3db8c81b05a1d7112338589fe9ce9c8cb0b43fb4401008ae",
+        "size_bytes": 7628
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/princess.py",
+        "sha256": "fd0a67312101451866165c3c33b7a16151b865a51bdfc057c61b18d7ac30aa7d",
+        "size_bytes": 36032
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/propagation_case_runner.py",
+        "sha256": "2f0df0a5bc6812b36fa25a3881c1c96c555bb69d576a2c34d17f9b329e47209e",
+        "size_bytes": 14254
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/propagation_case_runner_tree.py",
+        "sha256": "a6f49a2325a3843cf000e9c125b4290ad81be0130d28e7a1b3dfabfe01a6007e",
+        "size_bytes": 13463
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/protocol.py",
+        "sha256": "d19f2fc2114d45fb1e8545fd7566f46b3ee1fb82cebfb4e2e8ce22087ef9b881",
+        "size_bytes": 6137
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/runtime.py",
+        "sha256": "dbd5de26d19eaf5af2dd384d786d4c0967c0bb3e5c2fdbdf41bf4ec8519cf5da",
+        "size_bytes": 57790
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/shore_usb_ssh.py",
+        "sha256": "e4f3f25e4d86d3d92286adbbb5ffbfa708a22af4673e989660c5939925963448",
+        "size_bytes": 11373
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/state.py",
+        "sha256": "ecc33ba16fd25e7da0b08926903825ad433865da9ada4e4012e443ef934c9515",
+        "size_bytes": 104576
+      },
+      {
+        "path": "src/msabp_opt/simulation/distributed/transport.py",
+        "sha256": "c56b8dbbc3f748f61db37b26aa735c611279a208e34221fe139b57d591870c7f",
+        "size_bytes": 43463
+      }
+    ],
+    "schema": "msabp.cst-system-solve-source",
+    "schema_version": 1
+  },
+  "source_project": "D:\\Academic\\Proj_MSABP_2\\simulations\\models\\msa-bp.cst",
+  "source_sha256_after": "d1962a2d16f976b7d1e4e9eb6d44baf1a460ae324897b4b2c892c0109715d3a8",
+  "source_sha256_before": "d1962a2d16f976b7d1e4e9eb6d44baf1a460ae324897b4b2c892c0109715d3a8",
+  "stage_events": [
+    {
+      "elapsed_seconds": 13.369060299999546,
+      "stage": "clearing_results"
+    },
+    {
+      "elapsed_seconds": 13.37496370000008,
+      "stage": "building_tree_geometry"
+    },
+    {
+      "elapsed_seconds": 13.526714799998445,
+      "stage": "checking_simulation_setup"
+    },
+    {
+      "elapsed_seconds": 13.52966689999812,
+      "stage": "solving"
+    },
+    {
+      "elapsed_seconds": 69.61370220000026,
+      "stage": "exporting_1d_results"
+    },
+    {
+      "elapsed_seconds": 70.4472222000004,
+      "stage": "copying_farfield_source"
+    },
+    {
+      "elapsed_seconds": 70.45854550000149,
+      "stage": "writing_manifest"
+    },
+    {
+      "elapsed_seconds": 70.46103159999984,
+      "stage": "completed"
+    }
+  ],
+  "started_utc": "2026-11-16T18:32:06.242558+00:00",
+  "success": true
+}

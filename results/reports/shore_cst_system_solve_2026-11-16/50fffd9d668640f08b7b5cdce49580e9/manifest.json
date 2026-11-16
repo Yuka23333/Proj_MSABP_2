@@ -1,0 +1,284 @@
+{
+  "artifacts": {
+    "farfield_source": {
+      "path": "Farfield Source [1].ffs",
+      "sha256": "fa04b4e835d6ccf2a3ef01b526c0fe5be496247de9bc8e28368760da24100c01",
+      "size_bytes": 9642535
+    },
+    "geometry_tree": {
+      "path": "geometry_tree.json",
+      "sha256": "68c44462b016fc7bbdc1ea1adf9b0c4aca3a14daace7d74b9c112cce993986fd",
+      "size_bytes": 20755
+    },
+    "rad_eff": {
+      "path": "Rad_Eff.csv",
+      "sha256": "68cc6a0b2fd0152aba75d883bdaacc329261524478cb4071cbb82dcf9ce26205",
+      "size_bytes": 2519
+    },
+    "s11": {
+      "path": "S11.csv",
+      "sha256": "85c692d3b4696ce317a38648ccc56c2570e47709bf38b234f5cee0aaeaa726b2",
+      "size_bytes": 58184
+    },
+    "tot_eff": {
+      "path": "Tot_Eff.csv",
+      "sha256": "161ba96661dc7c5e31fe7c8dfdf84ac201afd04b33158c471b5959bed91544bd",
+      "size_bytes": 2519
+    }
+  },
+  "baseline_history_sha256": "29ca215424393df5c6d94268dcf8d306496f65033f03f0e8818fa7c073a38db0",
+  "case_id": "system_solve",
+  "completed_at_utc": "2026-11-16T18:33:16.889543+00:00",
+  "dry_run": false,
+  "elapsed_seconds": 57.15181609999854,
+  "expected_solver_name": "HF Time Domain",
+  "geometry": {
+    "baseline_history": [
+      {
+        "contents": "'set the units\nWith Units\n    .SetUnit \"Length\", \"mm\"\n    .SetUnit \"Frequency\", \"GHz\"\n    .SetUnit \"Voltage\", \"V\"\n    .SetUnit \"Resistance\", \"Ohm\"\n    .SetUnit \"Inductance\", \"nH\"\n    .SetUnit \"Temperature\",  \"degC\"\n    .SetUnit \"Time\", \"ns\"\n    .SetUnit \"Current\", \"A\"\n    .SetUnit \"Conductance\", \"S\"\n    .SetUnit \"Capacitance\", \"pF\"\nEnd With\n\nThermalSolver.AmbientTemperature \"0\"\n\n'----------------------------------------------------------------------------\n\n'set the frequency range\nSolver.FrequencyRange \"2\", \"6\"\n\n'----------------------------------------------------------------------------\n\nPlot.DrawBox True\n\nWith Background\n     .Type \"Normal\"\n     .Epsilon \"1.0\"\n     .Mu \"1.0\"\n     .XminSpace \"0.0\"\n     .XmaxSpace \"0.0\"\n     .YminSpace \"0.0\"\n     .YmaxSpace \"0.0\"\n     .ZminSpace \"0.0\"\n     .ZmaxSpace \"0.0\"\nEnd With\n\nWith Boundary\n     .Xmin \"expanded open\"\n     .Xmax \"expanded open\"\n     .Ymin \"expanded open\"\n     .Ymax \"expanded open\"\n     .Zmin \"expanded open\"\n     .Zmax \"expanded open\"\n     .Xsymmetry \"none\"\n     .Ysymmetry \"none\"\n     .Zsymmetry \"none\"\nEnd With\n\n' optimize mesh settings for planar structures\n\nWith Mesh\n     .MergeThinPECLayerFixpoints \"True\"\n     .RatioLimit \"20\"\n     .AutomeshRefineAtPecLines \"True\", \"6\"\n     .FPBAAvoidNonRegUnite \"True\"\n     .ConsiderSpaceForLowerMeshLimit \"False\"\n     .MinimumStepNumber \"5\"\n     .AnisotropicCurvatureRefinement \"True\"\n     .AnisotropicCurvatureRefinementFSM \"True\"\nEnd With\n\nWith MeshSettings\n     .SetMeshType \"Hex\"\n     .Set \"RatioLimitGeometry\", \"20\"\n     .Set \"EdgeRefinementOn\", \"1\"\n     .Set \"EdgeRefinementRatio\", \"6\"\nEnd With\n\nWith MeshSettings\n     .SetMeshType \"HexTLM\"\n     .Set \"RatioLimitGeometry\", \"20\"\nEnd With\n\nWith MeshSettings\n     .SetMeshType \"Tet\"\n     .Set \"VolMeshGradation\", \"1.5\"\n     .Set \"SrfMeshGradation\", \"1.5\"\nEnd With\n\n' change mesh adaption scheme to energy\n' \t\t(planar structures tend to store high energy\n'     \t locally at edges rather than globally in volume)\n\nMeshAdaption3D.SetAdaptionStrategy \"Energy\"\n\n' switch on FD-TET setting for accurate farfields\n\nFDSolver.ExtrudeOpenBC \"True\"\n\n'\n'PostProcess1D.ActivateOperation \"vswr\", \"true\"\n'PostProcess1D.ActivateOperation \"yz-matrices\", \"true\"\n'\n\nWith FarfieldPlot\n\t.ClearCuts ' lateral=phi, polar=theta\n\t.AddCut \"lateral\", \"0\", \"1\"\n\t.AddCut \"lateral\", \"90\", \"1\"\n\t.AddCut \"polar\", \"90\", \"1\"\nEnd With\n\n'----------------------------------------------------------------------------\n\nWith MeshSettings\n     .SetMeshType \"Hex\"\n     .Set \"Version\", 1%\nEnd With\n\nWith Mesh\n     .MeshType \"PBA\"\nEnd With\n\n'set the solver type\nChangeSolverType(\"HF Time Domain\")\n\n'----------------------------------------------------------------------------\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "use template: Antenna - Planar_4.cfg",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Material \n     .Reset \n     .Name \"PEC_1\" \n     .Folder \"\" \n     .Rho \"0\"\n     .ThermalType \"PTC\"\n     .MechanicsType \"Unused\"\n     .SolarRadiationAbsorptionType \"Opaque\"\n     .Absorptance \"0.0\"\n     .UseSemiTransparencyCalculator \"False\"\n     .SolarRadTransmittance \"0.0\"\n     .SolarRadReflectance \"0.0\"\n     .SolarRadSpecimenThickness \"0.0\"\n     .SolarRadRefractiveIndex \"1.0\"\n     .SolarRadAbsorptionCoefficient \"0.0\"\n     .FrqType \"all\"\n     .Type \"Pec\"\n     .MaterialUnit \"Frequency\", \"Hz\"\n     .MaterialUnit \"Geometry\", \"m\"\n     .MaterialUnit \"Time\", \"s\"\n     .MaterialUnit \"Temperature\", \"K\"\n     .Epsilon \"1\"\n     .Mu \"1\"\n     .ReferenceCoordSystem \"Global\"\n     .CoordSystemType \"Cartesian\"\n     .NLAnisotropy \"False\"\n     .NLAStackingFactor \"1\"\n     .NLADirectionX \"1\"\n     .NLADirectionY \"0\"\n     .NLADirectionZ \"0\"\n     .Colour \"0.219608\", \"0.219608\", \"0.219608\" \n     .Wireframe \"False\" \n     .Reflection \"False\" \n     .Allowoutline \"True\" \n     .Transparentoutline \"False\" \n     .Transparency \"0\" \n     .Create\nEnd With \n\nWith Material \n     .Reset \n     .Name \"Teflon (PTFE) (loss free)\" \n     .Folder \"\" \n     .Rho \"2200.0\"\n     .ThermalType \"Normal\"\n     .ThermalConductivity \"0.2\"\n     .SpecificHeat \"1000\", \"J/K/kg\"\n     .DynamicViscosity \"0\"\n     .UseEmissivity \"True\"\n     .Emissivity \"0\"\n     .MetabolicRate \"0.0\"\n     .VoxelConvection \"0.0\"\n     .BloodFlow \"0\"\n     .MechanicsType \"Isotropic\"\n     .YoungsModulus \"0.5\"\n     .PoissonsRatio \"0.4\"\n     .ThermalExpansionRate \"140\"\n     .SolarRadiationAbsorptionType \"Opaque\"\n     .Absorptance \"0.0\"\n     .UseSemiTransparencyCalculator \"False\"\n     .SolarRadTransmittance \"0.0\"\n     .SolarRadReflectance \"0.0\"\n     .SolarRadSpecimenThickness \"0.0\"\n     .SolarRadRefractiveIndex \"1.0\"\n     .SolarRadAbsorptionCoefficient \"0.0\"\n     .IntrinsicCarrierDensityModel \"none\"\n     .FrqType \"all\"\n     .Type \"Normal\"\n     .MaterialUnit \"Frequency\", \"GHz\"\n     .MaterialUnit \"Geometry\", \"mm\"\n     .MaterialUnit \"Time\", \"s\"\n     .Epsilon \"2.1\"\n     .Mu \"1.0\"\n     .Sigma \"0.0\"\n     .TanD \"0.0\"\n     .TanDFreq \"0.0\"\n     .TanDGiven \"False\"\n     .TanDModel \"ConstTanD\"\n     .SetConstTanDStrategyEps \"UserDefinedOrder\"\n     .ConstTanDModelOrderEps \"1\"\n     .DjordjevicSarkarUpperFreqEps \"0\"\n     .SetElParametricConductivity \"False\"\n     .ReferenceCoordSystem \"Global\"\n     .CoordSystemType \"Cartesian\"\n     .SigmaM \"0.0\"\n     .TanDM \"0.0\"\n     .TanDMFreq \"0.0\"\n     .TanDMGiven \"False\"\n     .TanDMModel \"ConstSigma\"\n     .SetConstTanDStrategyMu \"UserDefinedOrder\"\n     .ConstTanDModelOrderMu \"1\"\n     .DjordjevicSarkarUpperFreqMu \"0\"\n     .SetMagParametricConductivity \"False\"\n     .DispModelEps  \"None\"\n     .DispModelMu \"None\"\n     .DispersiveFittingSchemeEps \"1st Order\"\n     .DispersiveFittingSchemeMu \"1st Order\"\n     .UseGeneralDispersionEps \"False\"\n     .UseGeneralDispersionMu \"False\"\n     .NLAnisotropy \"False\"\n     .NLAStackingFactor \"1\"\n     .NLADirectionX \"1\"\n     .NLADirectionY \"0\"\n     .NLADirectionZ \"0\"\n     .Colour \"0.75\", \"0.95\", \"0.85\" \n     .Wireframe \"False\" \n     .Reflection \"False\" \n     .Allowoutline \"True\" \n     .Transparentoutline \"False\" \n     .Transparency \"0\" \n     .Create\nEnd With \n\nWith SAT \n     .Reset \n     .FileName \"*1.cby\" \n     .SubProjectScaleFactor \"0.001\" \n     .ImportToActiveCoordinateSystem \"True\" \n     .ScaleToUnit \"True\" \n     .Curves \"False\" \n     .Read \nEnd With \n\nWith MeshSettings\n     With .ItemMeshSettings (\"solid$Connector:CentralCond\")\n          .SetMeshType \"All\" \n          .Set \"Transform\", \"0\", \"0\", \"-1\", \"0\", \"1\", \"0\", \"1\", \"0\", \"0\" \n     End With\nEnd With\nWith MeshSettings\n     With .ItemMeshSettings (\"solid$Connector:CondDielectric\")\n          .SetMeshType \"All\" \n          .Set \"Transform\", \"0\", \"0\", \"-1\", \"0\", \"1\", \"0\", \"1\", \"0\", \"0\" \n     End With\nEnd With\nWith MeshSettings\n     With .ItemMeshSettings (\"solid$Connector:ConFace\")\n          .SetMeshType \"All\" \n          .Set \"Transform\", \"0\", \"0\", \"-1\", \"0\", \"1\", \"0\", \"1\", \"0\", \"0\" \n     End With\nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "paste structure data: 1",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "Component.Delete \"Connector\"\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "delete component: Connector",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Material \n     .Reset \n     .Name \"PEC_2\" \n     .Folder \"\" \n     .Rho \"0\"\n     .ThermalType \"PTC\"\n     .MechanicsType \"Unused\"\n     .SolarRadiationAbsorptionType \"Opaque\"\n     .Absorptance \"0.0\"\n     .UseSemiTransparencyCalculator \"False\"\n     .SolarRadTransmittance \"0.0\"\n     .SolarRadReflectance \"0.0\"\n     .SolarRadSpecimenThickness \"0.0\"\n     .SolarRadRefractiveIndex \"1.0\"\n     .SolarRadAbsorptionCoefficient \"0.0\"\n     .FrqType \"all\"\n     .Type \"Pec\"\n     .MaterialUnit \"Frequency\", \"Hz\"\n     .MaterialUnit \"Geometry\", \"m\"\n     .MaterialUnit \"Time\", \"s\"\n     .MaterialUnit \"Temperature\", \"K\"\n     .Epsilon \"1\"\n     .Mu \"1\"\n     .ReferenceCoordSystem \"Global\"\n     .CoordSystemType \"Cartesian\"\n     .NLAnisotropy \"False\"\n     .NLAStackingFactor \"1\"\n     .NLADirectionX \"1\"\n     .NLADirectionY \"0\"\n     .NLADirectionZ \"0\"\n     .Colour \"0.219608\", \"0.219608\", \"0.219608\" \n     .Wireframe \"False\" \n     .Reflection \"False\" \n     .Allowoutline \"True\" \n     .Transparentoutline \"False\" \n     .Transparency \"0\" \n     .Create\nEnd With \n\nWith SAT \n     .Reset \n     .FileName \"*2.cby\" \n     .SubProjectScaleFactor \"0.001\" \n     .ImportToActiveCoordinateSystem \"True\" \n     .ScaleToUnit \"True\" \n     .Curves \"False\" \n     .Read \nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "paste structure data: 2",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Transform \n     .Reset \n     .Name \"Connector\" \n     .Origin \"Free\" \n     .Center \"0\", \"0\", \"0\" \n     .Angle \"0\", \"270\", \"0\" \n     .MultipleObjects \"False\" \n     .GroupObjects \"False\" \n     .Repetitions \"1\" \n     .MultipleSelection \"False\" \n     .AutoDestination \"True\" \n     .Transform \"Shape\", \"Rotate\" \nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "transform: rotate Connector",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "Pick.PickFaceFromId \"Connector:ConFace\", \"11\"\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": true,
+        "hide": false,
+        "name": "pick face",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Port \n     .Reset \n     .PortNumber \"1\" \n     .Label \"\"\n     .Folder \"\"\n     .NumberOfModes \"1\"\n     .AdjustPolarization \"False\"\n     .PolarizationAngle \"0.0\"\n     .ReferencePlaneDistance \"0\"\n     .TextSize \"50\"\n     .TextMaxLimit \"0\"\n     .Coordinates \"Picks\"\n     .Orientation \"positive\"\n     .PortOnBound \"False\"\n     .ClipPickedPortToBound \"False\"\n     .Xrange \"-1.76825\", \"1.76825\"\n     .Yrange \"-8.89\", \"-8.89\"\n     .Zrange \"-1.38725\", \"2.14925\"\n     .XrangeAdd \"0.0\", \"0.0\"\n     .YrangeAdd \"0.0\", \"0.0\"\n     .ZrangeAdd \"0.0\", \"0.0\"\n     .SingleEnded \"False\"\n     .WaveguideMonitor \"False\"\n     .Create \nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": true,
+        "hide": false,
+        "name": "define port: 1",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Mesh \n     .MeshType \"PBA\" \n     .SetCreator \"High Frequency\"\nEnd With \nWith MeshSettings \n     .SetMeshType \"Hex\" \n     .Set \"Version\", 1%\n     'MAX CELL - WAVELENGTH REFINEMENT \n     .Set \"StepsPerWaveNear\", \"20\" \n     .Set \"StepsPerWaveFar\", \"15\" \n     .Set \"WavelengthRefinementSameAsNear\", \"0\" \n     'MAX CELL - GEOMETRY REFINEMENT \n     .Set \"StepsPerBoxNear\", \"20\" \n     .Set \"StepsPerBoxFar\", \"10\" \n     .Set \"MaxStepNear\", \"0\" \n     .Set \"MaxStepFar\", \"0\" \n     .Set \"ModelBoxDescrNear\", \"maxedge\" \n     .Set \"ModelBoxDescrFar\", \"maxedge\" \n     .Set \"UseMaxStepAbsolute\", \"0\" \n     .Set \"GeometryRefinementSameAsNear\", \"0\" \n     'MIN CELL \n     .Set \"UseRatioLimitGeometry\", \"1\" \n     .Set \"RatioLimitGeometry\", \"20\" \n     .Set \"MinStepGeometryX\", \"0\" \n     .Set \"MinStepGeometryY\", \"0\" \n     .Set \"MinStepGeometryZ\", \"0\" \n     .Set \"UseSameMinStepGeometryXYZ\", \"1\" \nEnd With \nWith MeshSettings \n     .Set \"PlaneMergeVersion\", \"2\" \nEnd With \nWith MeshSettings \n     .SetMeshType \"Hex\" \n     .Set \"FaceRefinementType\", \"NONE\" \n     .Set \"FaceRefinementRatio\", \"2\" \n     .Set \"FaceRefinementStep\", \"0\" \n     .Set \"FaceRefinementNSteps\", \"2\" \n     .Set \"EllipseRefinementType\", \"NONE\" \n     .Set \"EllipseRefinementRatio\", \"2\" \n     .Set \"EllipseRefinementStep\", \"0\" \n     .Set \"EllipseRefinementNSteps\", \"2\" \n     .Set \"FaceRefinementBufferLines\", \"3\" \n     .Set \"EdgeRefinementType\", \"RATIO\" \n     .Set \"EdgeRefinementRatio\", \"6\" \n     .Set \"EdgeRefinementStep\", \"0\" \n     .Set \"EdgeRefinementBufferLines\", \"3\" \n     .Set \"RefineEdgeMaterialGlobal\", \"0\" \n     .Set \"RefineAxialEdgeGlobal\", \"0\" \n     .Set \"BufferLinesNear\", \"3\" \n     .Set \"UseDielectrics\", \"1\" \n     .Set \"EquilibrateOn\", \"1\" \n     .Set \"Equilibrate\", \"1.5\" \n     .Set \"IgnoreThinPanelMaterial\", \"0\" \nEnd With\nWith MeshSettings \n     .SetMeshType \"Hex\" \n     .Set \"SnapToAxialEdges\", \"0\"\n     .Set \"SnapToPlanes\", \"1\"\n     .Set \"SnapToSpheres\", \"1\"\n     .Set \"SnapToEllipses\", \"0\"\n     .Set \"SnapToCylinders\", \"1\"\n     .Set \"SnapToCylinderCenters\", \"1\"\n     .Set \"SnapToEllipseCenters\", \"1\"\n     .Set \"SnapToTori\", \"1\"\n     .Set \"SnapXYZ\" , \"1\", \"1\", \"1\"\nEnd With \nWith Mesh \n     .ConnectivityCheck \"True\"\n     .UsePecEdgeModel \"True\" \n     .PointAccEnhancement \"0\" \n     .TSTVersion \"0\"\n\t  .PBAVersion \"2024121625\" \n     .SetCADProcessingMethod \"MultiThread22\", \"-1\" \n     .SetGPUForMatrixCalculationDisabled \"False\" \nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "set mesh properties (Hexahedral FIT)",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "Mesh.SetCreator \"High Frequency\" \n\nWith Solver \n     .Method \"Hexahedral\"\n     .CalculationType \"TD-S\"\n     .StimulationPort \"All\"\n     .StimulationMode \"All\"\n     .SteadyStateLimit \"-40\"\n     .MeshAdaption \"False\"\n     .AutoNormImpedance \"False\"\n     .NormingImpedance \"50\"\n     .CalculateModesOnly \"False\"\n     .SParaSymmetry \"False\"\n     .StoreTDResultsInCache  \"False\"\n     .RunDiscretizerOnly \"False\"\n     .FullDeembedding \"False\"\n     .SuperimposePLWExcitation \"False\"\n     .UseSensitivityAnalysis \"False\"\nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "define time domain solver parameters",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Monitor\n          .Reset \n          .Domain \"Frequency\"\n          .FieldType \"Farfield\"\n          .ExportFarfieldSource \"True\" \n          .UseSubvolume \"False\" \n          .Coordinates \"Structure\" \n          .SetSubvolume \"-33.5\", \"33.5\", \"-8.89\", \"40.6\", \"-4.735\", \"3.96\" \n          .SetSubvolumeOffset \"10\", \"10\", \"10\", \"10\", \"10\", \"10\" \n          .SetSubvolumeInflateWithOffset \"False\" \n          .SetSubvolumeOffsetType \"FractionOfWavelength\" \n          .EnableNearfieldCalculation \"True\" \n          .CreateUsingLinearStep \"2\", \"6\", \"0.1\"\nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "define monitors (using linear step)",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Material\n     .Reset\n     .Name \"Rogers AD 350A (lossy)\"\n     .Folder \"\"\n     .FrqType \"all\"\n     .Type \"Normal\"\n     .SetMaterialUnit \"GHz\", \"mm\"\n     .Epsilon \"3.5\"\n     .Mu \"1.0\"\n     .Kappa \"0.0\"\n     .TanD \"0.003\"\n     .TanDFreq \"10.0\"\n     .TanDGiven \"True\"\n     .TanDModel \"ConstTanD\"\n     .KappaM \"0.0\"\n     .TanDM \"0.0\"\n     .TanDMFreq \"0.0\"\n     .TanDMGiven \"False\"\n     .TanDMModel \"ConstKappa\"\n     .DispModelEps \"None\"\n     .DispModelMu \"None\"\n     .DispersiveFittingSchemeEps \"General 1st\"\n     .DispersiveFittingSchemeMu \"General 1st\"\n     .UseGeneralDispersionEps \"False\"\n     .UseGeneralDispersionMu \"False\"\n     .Rho \"0.0\"\n     .ThermalType \"Normal\"\n     .ThermalConductivity \"0.44\"\n     .SetActiveMaterial \"all\"\n     .Colour \"0.94\", \"0.82\", \"0.76\"\n     .Wireframe \"False\"\n     .Transparency \"0\"\n     .Create\nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "define material: Rogers AD 350A (lossy)",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Boundary\n     .ReflectionLevel \"0.0001\" \n     .MinimumDistanceType \"Fraction\" \n     .MinimumDistancePerWavelengthNewMeshEngine \"4\" \n     .MinimumDistanceReferenceFrequencyType \"CenterNMonitors\" \n     .FrequencyForMinimumDistance \"2\" \n     .SetAbsoluteDistance \"0.0\" \nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "define pml specials",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Solver \n     .UseParallelization \"True\"\n     .MaximumNumberOfThreads \"1024\"\n     .MaximumNumberOfCPUDevices \"2\"\n     .RemoteCalculation \"False\"\n     .UseDistributedComputing \"False\"\n     .MaxNumberOfDistributedComputingPorts \"64\"\n     .DistributeMatrixCalculation \"True\"\n     .MPIParallelization \"False\"\n     .AutomaticMPI \"False\"\n     .ConsiderOnly0D1DResultsForMPI \"False\"\n     .HardwareAcceleration \"True\"\n     .MaximumNumberOfGPUs \"1\"\nEnd With\nUseDistributedComputingForParameters \"False\"\nMaxNumberOfDistributedComputingParameters \"2\"\nUseDistributedComputingMemorySetting \"False\"\nMinDistributedComputingMemoryLimit \"0\"\nUseDistributedComputingSharedDirectory \"False\"\nOnlyConsider0D1DResultsForDC \"False\"\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "define time domain solver acceleration",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Mesh \n     .MeshType \"PBA\" \n     .SetCreator \"High Frequency\"\nEnd With \nWith MeshSettings \n     .SetMeshType \"Hex\" \n     .Set \"Version\", 1%\n     'MAX CELL - WAVELENGTH REFINEMENT \n     .Set \"StepsPerWaveNear\", \"20\" \n     .Set \"StepsPerWaveFar\", \"15\" \n     .Set \"WavelengthRefinementSameAsNear\", \"0\" \n     'MAX CELL - GEOMETRY REFINEMENT \n     .Set \"StepsPerBoxNear\", \"20\" \n     .Set \"StepsPerBoxFar\", \"10\" \n     .Set \"MaxStepNear\", \"0\" \n     .Set \"MaxStepFar\", \"0\" \n     .Set \"ModelBoxDescrNear\", \"maxedge\" \n     .Set \"ModelBoxDescrFar\", \"maxedge\" \n     .Set \"UseMaxStepAbsolute\", \"0\" \n     .Set \"GeometryRefinementSameAsNear\", \"0\" \n     'MIN CELL \n     .Set \"UseRatioLimitGeometry\", \"1\" \n     .Set \"RatioLimitGeometry\", \"20\" \n     .Set \"MinStepGeometryX\", \"0\" \n     .Set \"MinStepGeometryY\", \"0\" \n     .Set \"MinStepGeometryZ\", \"0\" \n     .Set \"UseSameMinStepGeometryXYZ\", \"1\" \nEnd With \nWith MeshSettings \n     .Set \"PlaneMergeVersion\", \"2\" \nEnd With \nWith MeshSettings \n     .SetMeshType \"Hex\" \n     .Set \"FaceRefinementType\", \"NONE\" \n     .Set \"FaceRefinementRatio\", \"2\" \n     .Set \"FaceRefinementStep\", \"0\" \n     .Set \"FaceRefinementNSteps\", \"2\" \n     .Set \"EllipseRefinementType\", \"NONE\" \n     .Set \"EllipseRefinementRatio\", \"2\" \n     .Set \"EllipseRefinementStep\", \"0\" \n     .Set \"EllipseRefinementNSteps\", \"2\" \n     .Set \"FaceRefinementBufferLines\", \"3\" \n     .Set \"EdgeRefinementType\", \"RATIO\" \n     .Set \"EdgeRefinementRatio\", \"7\" \n     .Set \"EdgeRefinementStep\", \"0\" \n     .Set \"EdgeRefinementBufferLines\", \"3\" \n     .Set \"RefineEdgeMaterialGlobal\", \"0\" \n     .Set \"RefineAxialEdgeGlobal\", \"0\" \n     .Set \"BufferLinesNear\", \"3\" \n     .Set \"UseDielectrics\", \"1\" \n     .Set \"EquilibrateOn\", \"1\" \n     .Set \"Equilibrate\", \"1.5\" \n     .Set \"IgnoreThinPanelMaterial\", \"0\" \nEnd With\nWith MeshSettings \n     .SetMeshType \"Hex\" \n     .Set \"SnapToAxialEdges\", \"0\"\n     .Set \"SnapToPlanes\", \"1\"\n     .Set \"SnapToSpheres\", \"1\"\n     .Set \"SnapToEllipses\", \"0\"\n     .Set \"SnapToCylinders\", \"1\"\n     .Set \"SnapToCylinderCenters\", \"1\"\n     .Set \"SnapToEllipseCenters\", \"1\"\n     .Set \"SnapToTori\", \"1\"\n     .Set \"SnapXYZ\" , \"1\", \"1\", \"1\"\nEnd With \nWith Mesh \n     .ConnectivityCheck \"True\"\n     .UsePecEdgeModel \"True\" \n     .PointAccEnhancement \"10\" \n     .TSTVersion \"0\"\n\t  .PBAVersion \"2024121625\" \n     .SetCADProcessingMethod \"MultiThread22\", \"-1\" \n     .SetGPUForMatrixCalculationDisabled \"False\" \nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "set mesh properties (Hexahedral FIT)",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Boundary\n     .Xmin \"expanded open\"\n     .Xmax \"expanded open\"\n     .Ymin \"expanded open\"\n     .Ymax \"expanded open\"\n     .Zmin \"expanded open\"\n     .Zmax \"expanded open\"\n     .Xsymmetry \"magnetic\"\n     .Ysymmetry \"none\"\n     .Zsymmetry \"none\"\n     .ApplyInAllDirections \"False\"\n     .OpenAddSpaceFactor \"0.5\"\nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "define boundaries",
+        "version": "2025.2|34.0.1|20241216"
+      },
+      {
+        "contents": "With Mesh \n     .MeshType \"PBA\" \n     .SetCreator \"High Frequency\"\nEnd With \nWith MeshSettings \n     .SetMeshType \"Hex\" \n     .Set \"Version\", 1%\n     'MAX CELL - WAVELENGTH REFINEMENT \n     .Set \"StepsPerWaveNear\", \"22\" \n     .Set \"StepsPerWaveFar\", \"15\" \n     .Set \"WavelengthRefinementSameAsNear\", \"0\" \n     'MAX CELL - GEOMETRY REFINEMENT \n     .Set \"StepsPerBoxNear\", \"22\" \n     .Set \"StepsPerBoxFar\", \"10\" \n     .Set \"MaxStepNear\", \"0\" \n     .Set \"MaxStepFar\", \"0\" \n     .Set \"ModelBoxDescrNear\", \"maxedge\" \n     .Set \"ModelBoxDescrFar\", \"maxedge\" \n     .Set \"UseMaxStepAbsolute\", \"0\" \n     .Set \"GeometryRefinementSameAsNear\", \"0\" \n     'MIN CELL \n     .Set \"UseRatioLimitGeometry\", \"1\" \n     .Set \"RatioLimitGeometry\", \"20\" \n     .Set \"MinStepGeometryX\", \"0\" \n     .Set \"MinStepGeometryY\", \"0\" \n     .Set \"MinStepGeometryZ\", \"0\" \n     .Set \"UseSameMinStepGeometryXYZ\", \"1\" \nEnd With \nWith MeshSettings \n     .Set \"PlaneMergeVersion\", \"2\" \nEnd With \nWith MeshSettings \n     .SetMeshType \"Hex\" \n     .Set \"FaceRefinementType\", \"NONE\" \n     .Set \"FaceRefinementRatio\", \"2\" \n     .Set \"FaceRefinementStep\", \"0\" \n     .Set \"FaceRefinementNSteps\", \"2\" \n     .Set \"EllipseRefinementType\", \"NONE\" \n     .Set \"EllipseRefinementRatio\", \"2\" \n     .Set \"EllipseRefinementStep\", \"0\" \n     .Set \"EllipseRefinementNSteps\", \"2\" \n     .Set \"FaceRefinementBufferLines\", \"3\" \n     .Set \"EdgeRefinementType\", \"RATIO\" \n     .Set \"EdgeRefinementRatio\", \"7\" \n     .Set \"EdgeRefinementStep\", \"0\" \n     .Set \"EdgeRefinementBufferLines\", \"3\" \n     .Set \"RefineEdgeMaterialGlobal\", \"0\" \n     .Set \"RefineAxialEdgeGlobal\", \"0\" \n     .Set \"BufferLinesNear\", \"3\" \n     .Set \"UseDielectrics\", \"1\" \n     .Set \"EquilibrateOn\", \"1\" \n     .Set \"Equilibrate\", \"1.5\" \n     .Set \"IgnoreThinPanelMaterial\", \"0\" \nEnd With\nWith MeshSettings \n     .SetMeshType \"Hex\" \n     .Set \"SnapToAxialEdges\", \"0\"\n     .Set \"SnapToPlanes\", \"1\"\n     .Set \"SnapToSpheres\", \"1\"\n     .Set \"SnapToEllipses\", \"0\"\n     .Set \"SnapToCylinders\", \"1\"\n     .Set \"SnapToCylinderCenters\", \"1\"\n     .Set \"SnapToEllipseCenters\", \"1\"\n     .Set \"SnapToTori\", \"1\"\n     .Set \"SnapXYZ\" , \"1\", \"1\", \"1\"\nEnd With \nWith Mesh \n     .ConnectivityCheck \"True\"\n     .UsePecEdgeModel \"True\" \n     .PointAccEnhancement \"10\" \n     .TSTVersion \"0\"\n\t  .PBAVersion \"2024121625\" \n     .SetCADProcessingMethod \"MultiThread22\", \"-1\" \n     .SetGPUForMatrixCalculationDisabled \"False\" \nEnd With\n",
+        "error": false,
+        "exclude": false,
+        "has_undo": false,
+        "hide": false,
+        "name": "set mesh properties (Hexahedral FIT)",
+        "version": "2025.2|34.0.1|20241216"
+      }
+    ],
+    "baseline_history_count": 16,
+    "copper_area_mm2": 1632.1384,
+    "copper_components": 1,
+    "copper_holes": 0,
+    "history_count": 23,
+    "substrate_material": "Rogers AD 350A (lossy)"
+  },
+  "geometry_sha256": "68c44462b016fc7bbdc1ea1adf9b0c4aca3a14daace7d74b9c112cce993986fd",
+  "manufactured_copper_sha256": "6f4d8994f8f84eea5c1f94ca5ebfde03d8d0d0e2048e2c50ffb5c618fb35be29",
+  "manufacturing": {
+    "actions": [],
+    "added_area_mm2": 0.27340000000005177,
+    "after": {
+      "area_mm2": 1632.1384,
+      "components": 1,
+      "holes": 0
+    },
+    "before": {
+      "area_mm2": 1631.8649999999998,
+      "components": 1,
+      "holes": 0
+    },
+    "coordinate_frame": "bounds are mm relative to substrate bottom",
+    "joint_repairs": 0,
+    "max_joint_repairs": 8,
+    "minimum_mm": 0.1,
+    "mode": "repair",
+    "quantum_mm": 0.01,
+    "removed_area_mm2": 0.0,
+    "status": "passed",
+    "threshold_mm": 0.05,
+    "version": "tree-manufacturing-v2"
+  },
+  "parameters": {
+    "build_options": {
+      "feature_snap_mm": 0.05,
+      "manufacturing_mode": "repair",
+      "min_feature_mm": 0.1,
+      "snap_fraction": 0.05,
+      "tip_clearance": 1
+    },
+    "params": {
+      "LOWER_CORNER_EAR_1_K1": 0.2347417840375587,
+      "LOWER_CORNER_EAR_1_K2": 0.6666666666666666,
+      "LOWER_CORNER_EAR_2_K1": 0.24539877300613497,
+      "LOWER_CORNER_EAR_2_K2": 0.25,
+      "LOWER_CORNER_NOTCH_1_K1": 0.7745454545454545,
+      "LOWER_CORNER_NOTCH_1_K2": 0.7058823529411765,
+      "PATCH_BRICK_1_SIDE_MARGIN": 6,
+      "PATCH_BRICK_1_TOP_MARGIN": 2.6,
+      "PATCH_BRICK_2_HEIGHT_MARGIN": 15,
+      "PATCH_BRICK_3_BOTTOM_MARGIN": 2,
+      "PATCH_BRICK_4_MARGIN": 4,
+      "SLOT_MAIN_HEIGHT": 2,
+      "SLOT_MAIN_LENGTH": 53,
+      "UPPER_CORNER_EAR_1_K1": 0.4117647058823529,
+      "UPPER_CORNER_EAR_1_K2": 0.07142857142857142,
+      "UPPER_CORNER_NOTCH_1_K1": 0.6181818181818182,
+      "UPPER_CORNER_NOTCH_1_K2": 0.9333333333333333
+    },
+    "tree": {
+      "D1": {
+        "k": [
+          0.5,
+          0.5,
+          0.05
+        ],
+        "parent": "SLOT",
+        "side": "D"
+      },
+      "U1": {
+        "k": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "parent": "SLOT",
+        "side": "U"
+      }
+    }
+  },
+  "project_path": "C:\\ProgramData\\ShorePrincess\\project-msabp\\diagnostics\\cst-system-solve-50fffd9d668640f08b7b5cdce49580e9\\workspace\\model\\msa-bp.cst",
+  "schema_version": 1,
+  "simulation_mode": "antenna_tree",
+  "source_sha256": {
+    "builder": "c15341ee715f1fb8c124fde91a41f95dba03babb08405f3e17f4f4192b8ede2c",
+    "manufacturing": "98b65588f0295dde75622c6bb711cca2ce0c8a303281b2a406ca731f5f7552d2",
+    "model": "817e76b90578ec079f2619b198d84203338dfaa05a24a2f07f9b7beaf6cad2b7",
+    "runner": "087e30a22b9233cf0f7dc6b4b38ab3d628b1fb8522d08ae433662310ea0643e5"
+  },
+  "stage_seconds": {
+    "building_tree_geometry": 0.1517502999995486,
+    "checking_simulation_setup": 0.0029552000014518853,
+    "clearing_results": 0.0059025999980804045,
+    "copying_farfield_source": 0.011325399998895591,
+    "exporting_1d_results": 0.8335230000011506,
+    "precheck": 0.062311800000316,
+    "solving": 56.08402829999977
+  },
+  "started_at_utc": "2026-11-16T18:32:19.738765+00:00",
+  "status": "completed",
+  "tree_request_sha256": "eb6326d90acf0eaacf954d6979afe71a811b36f541fe3f7d81a48936f607f820"
+}

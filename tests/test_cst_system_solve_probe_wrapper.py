@@ -170,6 +170,20 @@ def test_remote_task_is_system_and_never_force_terminated_or_retried() -> None:
     assert "no process was terminated" in source
 
 
+def test_remote_task_bootstraps_the_conda_dll_search_path() -> None:
+    source = REMOTE.read_text(encoding="utf-8")
+    assert "(Get-Item -LiteralPath $PythonPath).Directory.FullName" in source
+    assert "Split-Path -LiteralPath $PythonPath -Parent" not in source
+    assert "$env:CONDA_PREFIX = __CONDA_PREFIX__" in source
+    assert "Library\\bin" in source
+    assert "'Scripts'" in source
+    assert "$env:PATH = __CONDA_ROOT__" in source
+    assert "$action.Path = $powerShellPath" in source
+    assert "-NoLogo -NoProfile -NonInteractive -EncodedCommand" in source
+    assert "$action.Path = $PythonPath" not in source
+    assert "exit $LASTEXITCODE" in source
+
+
 def test_solve_probe_removes_control_mode_before_imports() -> None:
     source = PROBE.read_text(encoding="utf-8")
     main = source.index("def main(")

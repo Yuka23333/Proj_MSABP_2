@@ -56,6 +56,10 @@ function Convert-ProcessEvidence($Processes) {
     )
 }
 
+function ConvertTo-PowerShellLiteral([string]$Value) {
+    "'" + $Value.Replace("'", "''") + "'"
+}
+
 foreach ($value in @($PythonPath, $ProjectPath, $EvidenceRoot, $TaskName, $RequestId)) {
     if ($value.Contains('"') -or $value.Contains("`r") -or $value.Contains("`n") -or
         $value.Contains([char]0)) {
@@ -128,17 +132,41 @@ $settings.WakeToRun = $false
 $settings.MultipleInstances = 2
 $settings.ExecutionTimeLimit = 'PT0S'
 $settings.AllowHardTerminate = $false
+$environmentRoot = (Get-Item -LiteralPath $PythonPath).Directory.FullName
+$environmentLibraryBin = Join-Path $environmentRoot 'Library\bin'
+$environmentScripts = Join-Path $environmentRoot 'Scripts'
+foreach ($path in @($environmentRoot, $environmentLibraryBin, $environmentScripts)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+        throw "Conda environment runtime directory is missing: $path"
+    }
+}
+$bootstrap = @'
+$ErrorActionPreference = 'Stop'
+$env:CONDA_PREFIX = __CONDA_PREFIX__
+$env:PATH = __CONDA_ROOT__ + ';' + __CONDA_LIBRARY_BIN__ + ';' + __CONDA_SCRIPTS__ + ';' + $env:PATH
+& __PYTHON__ -I -B __PROBE__ --project __PROJECT__ --workspace __WORKSPACE__ --report __REPORT__ --expected-project-sha256 __PROJECT_HASH__ --source-archive __SOURCE_ARCHIVE__ --source-archive-sha256 __SOURCE_ARCHIVE_HASH__
+exit $LASTEXITCODE
+'@
+$bootstrap = $bootstrap.Replace('__CONDA_PREFIX__', (ConvertTo-PowerShellLiteral $environmentRoot)).
+    Replace('__CONDA_ROOT__', (ConvertTo-PowerShellLiteral $environmentRoot)).
+    Replace('__CONDA_LIBRARY_BIN__', (ConvertTo-PowerShellLiteral $environmentLibraryBin)).
+    Replace('__CONDA_SCRIPTS__', (ConvertTo-PowerShellLiteral $environmentScripts)).
+    Replace('__PYTHON__', (ConvertTo-PowerShellLiteral $PythonPath)).
+    Replace('__PROBE__', (ConvertTo-PowerShellLiteral $probePath)).
+    Replace('__PROJECT__', (ConvertTo-PowerShellLiteral $ProjectPath)).
+    Replace('__WORKSPACE__', (ConvertTo-PowerShellLiteral $workspace)).
+    Replace('__REPORT__', (ConvertTo-PowerShellLiteral $reportPath)).
+    Replace('__PROJECT_HASH__', (ConvertTo-PowerShellLiteral $ExpectedProjectSha256)).
+    Replace('__SOURCE_ARCHIVE__', (ConvertTo-PowerShellLiteral $sourceArchivePath)).
+    Replace('__SOURCE_ARCHIVE_HASH__', (ConvertTo-PowerShellLiteral $SourceArchiveSha256))
+$encodedBootstrap = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bootstrap))
+$powerShellPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+if (-not (Test-Path -LiteralPath $powerShellPath -PathType Leaf)) {
+    throw "Windows PowerShell runtime is missing: $powerShellPath"
+}
 $action = $definition.Actions.Create(0)
-$action.Path = $PythonPath
-$action.Arguments = (
-    '-I -B "' + $probePath +
-    '" --project "' + $ProjectPath +
-    '" --workspace "' + $workspace +
-    '" --report "' + $reportPath +
-    '" --expected-project-sha256 ' + $ExpectedProjectSha256 +
-    ' --source-archive "' + $sourceArchivePath +
-    '" --source-archive-sha256 ' + $SourceArchiveSha256
-)
+$action.Path = $powerShellPath
+$action.Arguments = '-NoLogo -NoProfile -NonInteractive -EncodedCommand ' + $encodedBootstrap
 $action.WorkingDirectory = $EvidenceRoot
 $task = $folder.RegisterTaskDefinition(
     $TaskName, $definition, 18, 'SYSTEM', $null, 5,
