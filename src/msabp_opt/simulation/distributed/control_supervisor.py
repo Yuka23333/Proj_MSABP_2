@@ -1,7 +1,7 @@
 """Offline supervisor material journal; NOT yet a live service entry point.
 
 Explicit first-install initialization, conservative restart, and immutable
-four-file commits are implemented here. Authority discovery, activation,
+closed material commits are implemented here. Authority discovery, activation,
 process hosting and terminal-job release are deliberately not wired yet. An
 existing job remains blocking even when the network reports an empty pool.
 Installation/ACL checks and fixed production paths belong to the future host.
@@ -17,13 +17,12 @@ import sqlite3
 import stat
 from uuid import uuid4
 
-from .control_job_material import MAX_MATERIAL_BYTES, validate_material
+from .control_job_material import MAX_MATERIAL_BYTES
 from .control_release import safe_job_id, validate_profile
 from .control_remote_worker import _json_bytes, checked_path
 
 STATE_SCHEMA = "msabp.supervisor-state"
 STATE_VERSION = 1
-_FILES = {"authority-bootstrap.json", "samples.csv", "maid-runtime.json", "bell-config.json"}
 
 
 class MaintenanceRequired(RuntimeError):
@@ -256,8 +255,11 @@ class MaterialJournal:
         binding, digest, raw, stage, record = row
         if hashlib.sha256(raw).hexdigest() != digest:
             raise MaintenanceRequired("Journal material digest changed")
-        verified = validate_material(raw, profile=self.profile, bootstrap_data=self.bootstrap_data,
-                                     expected_binding=json.loads(binding))
+        from .control_job_http import validate_workload_material
+
+        verified = validate_workload_material(
+            raw, profile=self.profile, bootstrap_data=self.bootstrap_data,
+            expected_binding=json.loads(binding))
         if verified.job_id != job_id:
             raise MaintenanceRequired("Journal job ID differs from the original material binding")
         if (stage == "DOWNLOADED") != (record is None):
@@ -309,15 +311,16 @@ class MaterialJournal:
     @staticmethod
     def _directory(root: Path, files: dict, *, complete: bool):
         root = checked_path(root)
+        allowed = set(files)
         names = {p.name for p in root.iterdir()}
-        if names - _FILES or (complete and names != _FILES):
+        if names - allowed or (complete and names != allowed):
             raise MaintenanceRequired("Unexpected or missing material files")
         for name in names:
             if _regular(root / name).read_bytes() != files[name]:
                 raise MaintenanceRequired("Immutable material bytes differ")
 
     def commit(self, job_id: str) -> Path:
-        """Expose all four files by directory rename; no runner is called.
+        """Expose the exact verified file closure by rename; no runner is called.
 
         Repeated commit after a lost reply validates every original byte. A
         crash after rename but before the final ledger transaction is safe to

@@ -62,6 +62,12 @@ def make_job_service(preparation, gate, queue, bootstrap):
                     return proof
         raise ValueError("Released job lacks its original signed release proof")
 
+    from .control_remote_worker import MODE
+
+    workload_mode = preparation.get("mode", MODE)
+    project_data = None
+    if workload_mode != MODE:
+        project_data = Path(preparation["paths"]["project_template"]).read_bytes()
     return JobMaterialService(
         profile=preparation["release_profile"],
         bootstrap_data=Path(preparation["paths"]["bootstrap_path"]).read_bytes(),
@@ -70,6 +76,8 @@ def make_job_service(preparation, gate, queue, bootstrap):
         csv_data=Path(preparation["paths"]["samples_csv"]).read_bytes(),
         nonce_db=root / "job-http-nonces.sqlite",
         read_release_proof=read_release_proof,
+        workload_mode=workload_mode,
+        project_data=project_data,
     )
 
 

@@ -18,7 +18,11 @@ from msabp_opt.simulation.distributed.control_release import (
 from msabp_opt.simulation.distributed.control_remote_prepare import (
     PREPARATION_SOURCE_FILES, remote_paths,
 )
-from msabp_opt.simulation.distributed.control_remote_worker import MODE, SHORE_SOURCE_FILES
+from msabp_opt.simulation.distributed.control_remote_worker import (
+    CST_PROJECT_SOURCE_FILES,
+    MODE,
+    SHORE_SOURCE_FILES,
+)
 
 
 @pytest.fixture
@@ -46,6 +50,10 @@ def test_fixed_release_closure_retains_existing_and_separately_pinned_host():
     # the selected release so no version can choose its own pre-import verifier.
     assert "scripts/simulation/shore_supervisor.py" in RELEASE_SOURCE_FILES
     assert "scripts/simulation/shore_supervisor_princess.py" in RELEASE_SOURCE_FILES
+    assert "scripts/simulation/shore_supervisor_cst_princess.py" in RELEASE_SOURCE_FILES
+    assert set(CST_PROJECT_SOURCE_FILES) <= set(RELEASE_SOURCE_FILES)
+    for name in ("control_cst", "control_cst_material", "control_cst_prepare", "case_runner_tree"):
+        assert "src/msabp_opt/simulation/distributed/" + name + ".py" in RELEASE_SOURCE_FILES
     assert "scripts/simulation/supervisor_host.py" not in RELEASE_SOURCE_FILES
     assert len(SHORE_SOURCE_FILES) == 14
 

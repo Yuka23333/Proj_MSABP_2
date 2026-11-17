@@ -21,7 +21,8 @@ from shore_control.crypto import verify_object
 
 from msabp_opt.simulation.distributed.control_authority import ControlAuthority
 from msabp_opt.simulation.distributed.control_remote_bell import (
-    BellRunner, FixedMaidLauncher, IDLE_DOMAIN, READY_DOMAIN, WakeCoordinator, verify_wake_evidence,
+    BellRunner, FixedMaidLauncher, IDLE_DOMAIN, READY_DOMAIN, WakeCoordinator,
+    preflight_bell, verify_wake_evidence,
 )
 from msabp_opt.simulation.distributed.control_worker import ExecutionUncertain
 
@@ -40,6 +41,59 @@ class Transport:
             self.drop_method = None
             raise TimeoutError("synthetic reply loss after authority commit")
         return response
+
+
+def test_cst_template_parent_cannot_contain_bell_state(monkeypatch, tmp_path):
+    from msabp_opt.simulation.distributed import control_remote_worker as remote_worker
+
+    config_root = tmp_path / "config"
+    state_root = config_root / "bell-state"
+    state_root.mkdir(parents=True)
+    runtime_raw = {
+        "mode": remote_worker.CST_MODE,
+        "source_root": str(tmp_path / "source"),
+        "shore_source_root": str(tmp_path / "shore"),
+        "state_root": str(tmp_path / "maid-state"),
+        "output_root": str(tmp_path / "maid-output"),
+        "worker_config_path": str(tmp_path / "identity" / "worker-config.json"),
+        "bootstrap_path": str(config_root / "authority-bootstrap.json"),
+        "csv_path": str(config_root / "samples.csv"),
+        "project_template_path": str(config_root / "msa-bp.cst"),
+    }
+    digest = hashlib.sha256(remote_worker._json_bytes(runtime_raw)).hexdigest()
+
+    class Runtime:
+        def __init__(self, raw, runtime_sha256):
+            self.raw = raw
+            self.runtime_sha256 = runtime_sha256
+
+        def __getitem__(self, name):
+            return self.raw[name]
+
+    runtime = Runtime(runtime_raw, digest)
+
+    config = {
+        "schema": "msabp.shore-remote-synthetic-bell",
+        "schema_version": 1,
+        "mode": "shore-remote-synthetic-v1",
+        "runtime_config_path": str(config_root / "maid-runtime.json"),
+        "runtime_sha256": digest,
+        "state_root": str(state_root),
+        "poll_seconds": 2,
+    }
+    monkeypatch.setattr(remote_worker, "read_json", lambda *_: (config, b""))
+    monkeypatch.setattr(
+        remote_worker,
+        "RemoteSyntheticMaidConfig",
+        SimpleNamespace(load=lambda *_args, **_kwargs: runtime),
+    )
+    monkeypatch.setattr(
+        remote_worker,
+        "preflight_worker",
+        lambda *_: pytest.fail("Overlap must fail before worker preflight"),
+    )
+    with pytest.raises(ValueError, match="separate controlled state root"):
+        preflight_bell(config_root / "bell-config.json")
 
 
 @pytest.fixture

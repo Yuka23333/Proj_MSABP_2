@@ -31,6 +31,11 @@ from .protocol import validate_message
 
 MODE = "shore-remote-synthetic-v1"
 MAX_WIRE_BYTES = 1024 * 1024
+# Keep the existing 1 MiB bound for every JSON/control-plane request and
+# response.  Solver archives are a separate, explicitly bounded data plane:
+# far-field sources can legitimately exceed the old synthetic-only limit.
+MAX_ARTIFACT_WIRE_BYTES = 256 * 1024 * 1024
+MAX_ARTIFACT_EXPANDED_BYTES = 256 * 1024 * 1024
 AUTH_HEADER = "X-MSABP-Actor-Signature"
 AUTH_DOMAIN = "msabp-remote-synthetic-http-request-v1"
 WAKE_PATHS = frozenset(("/v1/wake/poll", "/v1/wake/complete"))
@@ -78,14 +83,16 @@ def _json_object(raw):
     return value
 
 
-def _length(headers):
+def _length(headers, maximum=MAX_WIRE_BYTES):
     values = headers.get_all("Content-Length", [])
-    if (len(values) != 1 or not re.fullmatch(r"0|[1-9][0-9]{0,7}", values[0])
+    if (len(values) != 1 or not re.fullmatch(r"0|[1-9][0-9]{0,8}", values[0])
             or headers.get_all("Transfer-Encoding", [])
             or headers.get_all("Content-Encoding", [])):
         raise ValueError("Unique bounded Content-Length without encodings required")
     length = int(values[0])
-    if length > MAX_WIRE_BYTES:
+    if type(maximum) is not int or maximum < 0:
+        raise ValueError("Invalid Content-Length bound")
+    if length > maximum:
         raise ApiError(413, "Body exceeds synthetic limit")
     return length
 
@@ -195,7 +202,7 @@ class RemotePrincessClient:
         # the same open file descriptor; receiver verifies bytes against digest.
         with Path(archive_path).open("rb") as stream:
             size = os.fstat(stream.fileno()).st_size
-            if not 0 < size <= MAX_WIRE_BYTES:
+            if not 0 < size <= MAX_ARTIFACT_WIRE_BYTES:
                 raise ApiError(413, "Artifact exceeds synthetic limit")
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
             stream.seek(0)
@@ -209,7 +216,9 @@ class RemotePrincessClient:
 
         if size is None:
             size, digest = len(body), hashlib.sha256(body).hexdigest()
-        if not 0 < size <= MAX_WIRE_BYTES:
+        maximum = (MAX_ARTIFACT_WIRE_BYTES
+                   if path.startswith(ARTIFACT_PATH_PREFIX) else MAX_WIRE_BYTES)
+        if not 0 < size <= maximum:
             raise ApiError(413, "Body exceeds synthetic limit")
         auth = self._auth(path, digest, size, content_type,
                           attempt_id=attempt_id, lease_token=lease_token)
@@ -404,7 +413,9 @@ class RemoteCollectorHandler(BaseHTTPRequestHandler):
             # A rejected request may send headers and body in separate TLS
             # records: closing with unread body can discard our 403/404 on
             # Windows. Draining these bytes never authenticates/parses them.
-            length = _length(self.headers)
+            maximum = (MAX_ARTIFACT_WIRE_BYTES
+                       if self.path.startswith(ARTIFACT_PATH_PREFIX) else MAX_WIRE_BYTES)
+            length = _length(self.headers, maximum)
             self._body_remaining = length
             host = f"{self.server.server_address[0]}:{self.server.server_address[1]}"
             if (self.request_version != "HTTP/1.0"
@@ -511,7 +522,8 @@ class RemoteCollectorHandler(BaseHTTPRequestHandler):
                 raise ValueError("Artifact differs from signed digest")
             with zipfile.ZipFile(temporary) as archive:
                 members = archive.infolist()
-                if len(members) > 64 or sum(item.file_size for item in members) > MAX_WIRE_BYTES:
+                if (len(members) > 64
+                        or sum(item.file_size for item in members) > MAX_ARTIFACT_EXPANDED_BYTES):
                     raise ApiError(413, "Expanded artifact exceeds synthetic limit")
             return c.handle_artifact(auth["attempt_id"], auth["actor_id"], auth["lease_token"],
                                      temporary, digest.hexdigest(), length)

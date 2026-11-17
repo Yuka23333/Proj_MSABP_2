@@ -108,7 +108,7 @@ class ShoreWorker:
 
     def __init__(self, root: str | Path, client: Any, authority_public_key: Any,
                  *, binding: Mapping[str, Any], registration: Mapping[str, Any],
-                 csv_sha256: str) -> None:
+                 csv_sha256: str, synthetic: bool = True) -> None:
         from shore_control.permits import DESCRIPTOR_FIELDS
         from shore_control.registry import validate_workers
         from .control_authority import SignedRpcJournal
@@ -129,7 +129,10 @@ class ShoreWorker:
             raise ValueError("ShoreWorker requires the registered Maid actor and fleet")
         if not re.fullmatch(r"[a-f0-9]{64}", csv_sha256) or csv_sha256 == "0" * 64:
             raise ValueError("Worker requires an independent nonzero CSV SHA-256")
+        if type(synthetic) is not bool:
+            raise ValueError("Worker result provenance requires an explicit boolean synthetic flag")
         self.csv_sha256 = csv_sha256
+        self.synthetic = synthetic
         self.rpc = SignedRpcJournal(self.root / "rpc.sqlite")
         with self.transaction() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS inbox(
@@ -286,7 +289,7 @@ class ShoreWorker:
             from .control_failure import bounded_terminal_record
 
             durable_record = bounded_terminal_record({
-                "synthetic": True, "permit_id": permit["permit_id"],
+                "synthetic": self.synthetic, "permit_id": permit["permit_id"],
                 "execution_id": execution_id, "state": outcome,
                 "failure_code": failure_code, "error_message": error_message})
             if outcome == "failed":

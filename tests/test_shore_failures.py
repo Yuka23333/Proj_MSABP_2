@@ -42,6 +42,29 @@ def test_actual_worker_terminal_record_bytes_checked_before_report(lab):  # noqa
     assert lab.executions == 0
 
 
+def test_terminal_provenance_is_bound_to_selected_workload_mode(lab, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("MSABP_CONTROL_MODE", "shore-remote-cst-v1")
+    gate = lab.gate()
+    gate.synthetic = False
+    gate.accept(lab.assignment, run_id="run-1", worker_id="maid-a",
+                row_sha256=lab.assignment["row_sha256"], csv_sha256=lab.config.csv_sha256)
+    gate.start("attempt-1")
+    result = gate.save_result(
+        "attempt-1",
+        lab.root / "physical-failure-proof",
+        outcome="failed",
+        failure_code="CstFailure",
+        error_message="known returned physical failure",
+    )
+    data = (Path(result["root"]) / "termination.json").read_bytes()
+    monkeypatch.setenv("MSABP_CONTROL_MODE", "shore-remote-synthetic-v1")
+    with pytest.raises(ValueError, match="provenance"):
+        validate_terminal_record(data, result["evidence"], lab.permit["payload"])
+    monkeypatch.setenv("MSABP_CONTROL_MODE", "shore-remote-cst-v1")
+    assert validate_terminal_record(
+        data, result["evidence"], lab.permit["payload"])["synthetic"] is False
+
+
 @pytest.mark.parametrize("mutation", ["bytes", "extra_field", "noncanonical", "oversized", "missing_artifact"])
 def test_terminal_record_validator_rejects_unbacked_or_malformed_proof(lab, mutation):  # noqa: F811
     _, result = prepared_failure(lab)

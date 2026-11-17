@@ -1,8 +1,8 @@
-"""Fail-closed execution boundary for the explicitly selected Shore fake lab.
+"""Fail-closed execution boundary for explicitly selected Shore workloads.
 
 Legacy workflows are not silently enrolled. This switch must be set before
-starting an experimental adapter process; it is NOT production authorization.
-No key discovery, SSH-agent fallback or real solver is available in this mode.
+starting an adapter process; it is NOT production authorization. Each selected
+mode still requires its own signed runtime, source closure and execution gate.
 """
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ import os
 
 LAB_MODE = "shore-fake-v1"
 REMOTE_MODE = "shore-remote-synthetic-v1"
-CONTROL_MODES = frozenset((LAB_MODE, REMOTE_MODE))
+CST_MODE = "shore-remote-cst-v1"
+CONTROL_MODES = frozenset((LAB_MODE, REMOTE_MODE, CST_MODE))
 MODE_ENV = "MSABP_CONTROL_MODE"
 
 
@@ -31,8 +32,9 @@ def controlled_mode() -> bool:
 
 
 def reject_external_execution(action: str) -> None:
-    if controlled_mode():
-        label = "fake-worker lab" if lab_mode() else REMOTE_MODE
+    mode = control_mode()
+    if mode:
+        label = "fake-worker lab" if mode == LAB_MODE else mode
         raise RuntimeError(
             f"Shore {label} refuses {action}; this legacy entry is not enrolled. "
             "No local/SSH/Bell/GPU or credential fallback is allowed."

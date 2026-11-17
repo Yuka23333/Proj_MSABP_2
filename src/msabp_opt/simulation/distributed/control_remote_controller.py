@@ -1,4 +1,4 @@
-"""Project-side single-job orchestration for remote synthetic acceptance.
+"""Project-side single-job orchestration for reviewed Shore workloads.
 
 No SSH, deployment, service installation or solver entry exists here. Offline
 preparation is separate from explicitly authorized bind/serve operations. An
@@ -16,7 +16,7 @@ from uuid import uuid4
 
 from .control_failure import _persist_record, _safe_directory
 from .control_remote_worker import (
-    BELL_ACTOR, LOCAL_NODE_ID, MAID_ACTOR, MODE, PROJECT_SOURCE_FILES,
+    BELL_ACTOR, CST_MODE, LOCAL_NODE_ID, MAID_ACTOR, MODE, PROJECT_SOURCE_FILES,
     SHORE_SOURCE_FILES, RemoteSyntheticMaidConfig, _json_bytes, checked_path,
     read_json, sha256_file,
 )
@@ -27,6 +27,17 @@ from .protocol import validate_message
 CONTROLLER_ACTOR = "princess-24b88f2d-6ff7-415b-ae07-b8981a3418aa"
 HOST_NODE = "n8BsWasrMb11CNTRL"
 IDLE_DOMAIN = "msabp.synthetic-worker-idle"
+
+
+def workload_metadata(preparation):
+    mode = preparation.get("mode", MODE)
+    if mode not in {MODE, CST_MODE}:
+        raise ValueError("Unsupported prepared workload mode")
+    return {"mode": mode, "synthetic": mode == MODE, "real_cst": mode == CST_MODE}
+
+
+def workload_log_prefix(preparation):
+    return "[Shore CST]" if preparation.get("mode", MODE) == CST_MODE else "[Shore synthetic]"
 
 
 def immutable_json(path, value):
@@ -443,31 +454,52 @@ def bind_job(preparation, gate, bootstrap, session_id, session_public_key):
                        prepared.worklist.worklist.sha256)
     gate.bind_run_plan(preparation["run_id"], prepared.paths.runtime_json)
     remote = preparation["remote_paths"]
-    runtime = {"schema": "msabp.shore-remote-synthetic-maid", "schema_version": 1,
-        "mode": MODE, "run_id": preparation["run_id"], "worker_id": MAID_ACTOR,
-        "local_node_id": LOCAL_NODE_ID, "bootstrap_path": remote["bootstrap_path"],
-        "bootstrap_sha256": preparation["bootstrap_sha256"],
-        "source_root": remote["source_root"],
-        "source_hashes": {k: preparation["source_hashes"][k] for k in PROJECT_SOURCE_FILES},
-        "shore_source_root": remote["shore_source_root"],
-        "shore_source_hashes": {k: preparation["shore_source_hashes"][k] for k in SHORE_SOURCE_FILES},
-        "worker_config_path": remote["worker_config_path"], "csv_path": remote["csv_path"],
-        "csv_sha256": prepared.worklist.worklist.sha256, "api_token": prepared.api_token,
-        "binding": {**gate.binding, **gate.job["scope"], "fleet_id": bootstrap["fleet_id"]},
-        "state_root": remote["maid_state_root"], "output_root": remote["maid_output_root"],
-        "poll_seconds": 2, "heartbeat_seconds": 5}
-    if "release_profile" in preparation:
+    binding = {**gate.binding, **gate.job["scope"], "fleet_id": bootstrap["fleet_id"]}
+    if preparation.get("mode", MODE) == CST_MODE:
+        if "release_profile" not in preparation:
+            raise ValueError("Real CST Supervisor work requires a pinned release profile")
+        from .control_cst_material import build_runtime_cst
+
+        csv_data = Path(preparation["paths"]["samples_csv"]).read_bytes()
+        project_data = Path(preparation["paths"]["project_template"]).read_bytes()
+        runtime = build_runtime_cst(
+            preparation["release_profile"],
+            Path(preparation["paths"]["bootstrap_path"]).read_bytes(),
+            binding,
+            run_id=preparation["run_id"],
+            api_token=prepared.api_token,
+            csv_data=csv_data,
+            project_template_sha256=hashlib.sha256(project_data).hexdigest(),
+        )
+    else:
+        runtime = {"schema": "msabp.shore-remote-synthetic-maid", "schema_version": 1,
+            "mode": MODE, "run_id": preparation["run_id"], "worker_id": MAID_ACTOR,
+            "local_node_id": LOCAL_NODE_ID, "bootstrap_path": remote["bootstrap_path"],
+            "bootstrap_sha256": preparation["bootstrap_sha256"],
+            "source_root": remote["source_root"],
+            "source_hashes": {k: preparation["source_hashes"][k] for k in PROJECT_SOURCE_FILES},
+            "shore_source_root": remote["shore_source_root"],
+            "shore_source_hashes": {k: preparation["shore_source_hashes"][k] for k in SHORE_SOURCE_FILES},
+            "worker_config_path": remote["worker_config_path"], "csv_path": remote["csv_path"],
+            "csv_sha256": prepared.worklist.worklist.sha256, "api_token": prepared.api_token,
+            "binding": binding,
+            "state_root": remote["maid_state_root"], "output_root": remote["maid_output_root"],
+            "poll_seconds": 2, "heartbeat_seconds": 5}
+    if "release_profile" in preparation and preparation.get("mode", MODE) == MODE:
         from .control_job_material import build_runtime
         expected = build_runtime(preparation["release_profile"],
-            Path(preparation["paths"]["bootstrap_path"]).read_bytes(), runtime["binding"],
+            Path(preparation["paths"]["bootstrap_path"]).read_bytes(), binding,
             run_id=preparation["run_id"], api_token=prepared.api_token)
         if runtime != expected:
             raise ValueError("Supervisor runtime differs from the pre-signing approved release")
     config = RemoteSyntheticMaidConfig.from_mapping(runtime)
     stage = root / "deployment"
     immutable_json(stage / "maid-runtime.json", runtime)
-    for name, key in ((Path(remote["bootstrap_path"]).name, "bootstrap_path"),
-                      (Path(remote["csv_path"]).name, "samples_csv")):
+    staged = [(Path(remote["bootstrap_path"]).name, "bootstrap_path"),
+              (Path(remote["csv_path"]).name, "samples_csv")]
+    if preparation.get("mode", MODE) == CST_MODE:
+        staged.append((Path(remote["project_template_path"]).name, "project_template"))
+    for name, key in staged:
         _persist_record(stage / name, Path(preparation["paths"][key]).read_bytes())
     immutable_json(stage / "bell-config.json", {
         "schema": "msabp.shore-remote-synthetic-bell", "schema_version": 1, "mode": MODE,
@@ -576,6 +608,7 @@ def serve_receipts(preparation, gate, bootstrap, verifier, *, collector_config, 
     material = collector_material(collector_config, bootstrap)
     state = PrincessState(prepared.paths.database, control_authority=gate)
     server = thread = None
+    prefix = workload_log_prefix(preparation)
     try:
         coordinator = WakeGatedCoordinator(state, wake_queue=queue, run_id=preparation["run_id"],
             csv_sha256=prepared.worklist.worklist.sha256, results_dir=prepared.paths.results_root,
@@ -591,12 +624,12 @@ def serve_receipts(preparation, gate, bootstrap, verifier, *, collector_config, 
             wake_handler=queue.handle, receipt_only=True, **job_options)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        print("[Shore synthetic] receipt-only listener active; no work or renewal permitted", flush=True)
+        print(prefix + " receipt-only listener active; no work or renewal permitted", flush=True)
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
             time.sleep(min(0.5, max(0, deadline - time.monotonic())))
     except KeyboardInterrupt:
-        print("[Shore synthetic] receipt window closed; job unchanged", flush=True)
+        print(prefix + " receipt window closed; job unchanged", flush=True)
     finally:
         if server is not None:
             if thread is not None:
@@ -604,7 +637,7 @@ def serve_receipts(preparation, gate, bootstrap, verifier, *, collector_config, 
                 thread.join(timeout=10)
             server.server_close()
         state.close()
-    return {"mode": MODE, "phase": job["phase"], "receipt_only": True}
+    return {**workload_metadata(preparation), "phase": job["phase"], "receipt_only": True}
 
 
 def serve_job(preparation, gate, bootstrap, verifier, *, collector_config):
@@ -623,7 +656,7 @@ def serve_job(preparation, gate, bootstrap, verifier, *, collector_config):
             if report.get("phase") != "RELEASED":
                 raise ValueError("Completion report disagrees with signed release")
             return report
-        report = {"mode": MODE, "phase": job["phase"], "synthetic": True, "real_cst": False,
+        report = {**workload_metadata(preparation), "phase": job["phase"],
                   "checkpoint": gate._get("reconciliation"), "recovered_after_release": True}
         immutable_json(path, report)
         return report
@@ -633,6 +666,7 @@ def serve_job(preparation, gate, bootstrap, verifier, *, collector_config):
     material = collector_material(collector_config, bootstrap)
     state = PrincessState(prepared.paths.database, control_authority=gate)
     server = thread = None
+    prefix = workload_log_prefix(preparation)
     try:
         state.bind_control_run(preparation["run_id"])
         coordinator = WakeGatedCoordinator(state, wake_queue=queue, run_id=preparation["run_id"],
@@ -649,7 +683,7 @@ def serve_job(preparation, gate, bootstrap, verifier, *, collector_config):
             **job_options)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        print("[Shore synthetic] collector active; awaiting independently deployed SYSTEM Bell", flush=True)
+        print(prefix + " collector active; awaiting independently deployed SYSTEM Bell", flush=True)
         while True:
             try:
                 gate.poll_control()
@@ -657,16 +691,16 @@ def serve_job(preparation, gate, bootstrap, verifier, *, collector_config):
                     from .control_supervisor_controller import publish_original_wake
                     publish_original_wake(gate, queue)
             except Exception as exc:
-                print("[Shore synthetic] new dispatch stopped; collection retained: " + type(exc).__name__, flush=True)
+                print(prefix + " new dispatch stopped; collection retained: " + type(exc).__name__, flush=True)
             if "release_profile" in preparation:
                 # An idle supervisor waits for a knock rather than polling. Repeat
                 # it every pass: a datagram may be lost or the worker restarted.
                 from .control_supervisor_controller import knock
                 knock(bootstrap)
             progress = state.progress(preparation["run_id"])
-            print("[Shore synthetic] " + json.dumps(progress.as_dict()), flush=True)
+            print(prefix + " " + json.dumps(progress.as_dict()), flush=True)
             if progress.is_terminal and gate.job["phase"] == "ACTIVE":
-                gate.begin_drain("All synthetic evaluations reached terminal state")
+                gate.begin_drain("All authorized evaluations reached terminal state")
             if gate.job["phase"] in {"DRAINING", "PAUSED_BOUND"}:
                 try:
                     if gate.job["phase"] != "PAUSED_BOUND":
@@ -675,24 +709,24 @@ def serve_job(preparation, gate, bootstrap, verifier, *, collector_config):
                             raise ValueError("Awaiting actual Bell/Maid signed idle records")
                         gate.finish_drain(worker_outboxes_pending=pending)
                     if progress.completed == preparation["points"]:
-                        gate.release(disposition="completed", reason="Authorized synthetic acceptance completed")
+                        gate.release(disposition="completed", reason="Authorized evaluation completed")
                     # With missing F, release fails and collection stays alive.
                     # An incomplete drained job remains bound for explicit review.
-                    report = {"mode": MODE, "phase": gate.job["phase"],
-                        "progress": progress.as_dict(), "synthetic": True, "real_cst": False,
+                    report = {**workload_metadata(preparation), "phase": gate.job["phase"],
+                        "progress": progress.as_dict(),
                         "checkpoint": gate._get("reconciliation")}
                     immutable_json(root / "completion-report.json", report)
                     time.sleep(3)  # Short terminal grace for the Maid's final poll.
                     return report
                 except Exception as exc:
-                    print("[Shore synthetic] drain/release pending: " + type(exc).__name__, flush=True)
+                    print(prefix + " drain/release pending: " + type(exc).__name__, flush=True)
             time.sleep(2)
     except KeyboardInterrupt:
         # Ctrl-C is an explicit stop of this collector, never a force-close.
         try:
             gate.begin_drain("Operator interrupted collector; retain journals and resume collection")
         finally:
-            print("[Shore synthetic] stopped; job NOT released; use same preparation to collect", flush=True)
+            print(prefix + " stopped; job NOT released; use same preparation to collect", flush=True)
         raise
     finally:
         if server is not None:

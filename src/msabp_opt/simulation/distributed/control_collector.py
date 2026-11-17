@@ -86,7 +86,7 @@ class ControlCollector:
         manifest_hash = _required_sha256(payload, "manifest_sha256")
         control = payload.get("control_authority")
         if not isinstance(control, dict) or control.get("outcome") != "completed":
-            raise ValueError("Only verified completed fake results can settle in this adapter revision")
+            raise ValueError("Only verified completed controlled results can settle in this adapter revision")
         envelope = state.control_for_attempt(attempt_id)
         if envelope is None:
             raise ValueError("No durable permit for this attempt")

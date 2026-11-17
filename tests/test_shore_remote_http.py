@@ -337,12 +337,13 @@ def test_streamed_artifact_hash_cleanup_and_upload_journal(lab):
     assert not list((lab.tmp_path / "uploads").iterdir())
 
 
-def test_upload_mismatch_and_expansion_are_bounded_and_cleaned(lab):
+def test_upload_mismatch_and_expansion_are_bounded_and_cleaned(lab, monkeypatch):
     data = archive_bytes()
     path = ARTIFACT_PATH_PREFIX + "attempt"
     auth = lab.client._auth(path, "e" * 64, len(data), "application/zip", attempt_id="attempt", lease_token="lease")
     assert wire(lab, data, path=path, auth=auth)[0] == 400
-    bomb = archive_bytes(b"x" * (remote.MAX_WIRE_BYTES + 1), zipfile.ZIP_DEFLATED)
+    monkeypatch.setattr(remote, "MAX_ARTIFACT_EXPANDED_BYTES", 32)
+    bomb = archive_bytes(b"x" * 33, zipfile.ZIP_DEFLATED)
     assert wire(lab, bomb, path=path)[0] == 413
     assert len(lab.ends) == 2
     assert not list((lab.tmp_path / "uploads").iterdir())
@@ -407,9 +408,10 @@ def test_client_pinned_target_and_signed_headers_no_token(lab, monkeypatch):
     assert response.closed and connection.closed
 
 
-def test_oversized_upload_never_connects(lab):
+def test_oversized_upload_never_connects(lab, monkeypatch):
+    monkeypatch.setattr(remote, "MAX_ARTIFACT_WIRE_BYTES", 32)
     path = lab.tmp_path / "oversized.zip"
-    path.write_bytes(b"x" * (remote.MAX_WIRE_BYTES + 1))
+    path.write_bytes(b"x" * 33)
     with pytest.raises(ApiError, match="synthetic limit"):
         lab.client.upload_artifact("attempt", "maid", "lease", path)
 
@@ -420,6 +422,15 @@ def test_strict_content_length(value):
     if value is not None:
         headers["Content-Length"] = value
     with pytest.raises((ValueError, ApiError)):
+        remote._length(headers)
+
+
+def test_artifact_content_length_has_an_independent_larger_bound(monkeypatch):
+    monkeypatch.setattr(remote, "MAX_ARTIFACT_WIRE_BYTES", remote.MAX_WIRE_BYTES + 16)
+    headers = Message()
+    headers["Content-Length"] = str(remote.MAX_WIRE_BYTES + 1)
+    assert remote._length(headers, remote.MAX_ARTIFACT_WIRE_BYTES) == remote.MAX_WIRE_BYTES + 1
+    with pytest.raises(ApiError):
         remote._length(headers)
 
 

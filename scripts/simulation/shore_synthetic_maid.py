@@ -1,4 +1,4 @@
-"""Independent signed remote synthetic Maid. Preflight is strictly offline."""
+"""Independent signed remote Maid for reviewed synthetic or CST runtimes."""
 from __future__ import annotations
 
 import argparse
@@ -47,7 +47,7 @@ def main(argv=None) -> int:
         return run_worker(config, startup_record=startup, ready_record=args.ready_record)
     except (ValueError, OSError, RuntimeError) as exc:
         # Never dump runtime tokens, key paths, signed requests or stack locals.
-        print(json.dumps({"error": type(exc).__name__, "message": "Synthetic Maid refused startup or execution"}),
+        print(json.dumps({"error": type(exc).__name__, "message": "Controlled Maid refused startup or execution"}),
               flush=True)
         return 1
 

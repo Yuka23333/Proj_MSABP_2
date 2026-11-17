@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from .control_job_material import _binding
 from .control_release import runtime_paths, safe_job_id, validate_profile, verify_release
-from .control_remote_worker import BELL_ACTOR, LOCAL_NODE_ID, MAID_ACTOR, _json_bytes, checked_path
+from .control_remote_worker import BELL_ACTOR, LOCAL_NODE_ID, MAID_ACTOR, MODE, _json_bytes, checked_path
 from .control_supervisor import (
     STATE_SCHEMA, STATE_VERSION, MaintenanceRequired, MaterialJournal, _maintenance_database, _regular,
     _write_new, initialize_state,
@@ -426,7 +426,7 @@ class OriginalJobSession:
         if _json_bytes(maid) != _json_bytes(_idle_payload(self.runtime, _read_idle_permits(self.runtime))):
             raise MaintenanceRequired("Maid idle differs from original runtime and durable journals")
         payload = {"schema": IDLE_DOMAIN, "schema_version": 1,
-            "mode": self.runtime["mode"], "actor_id": BELL_ACTOR, "fleet_id": c.client.fleet_id,
+            "mode": MODE, "actor_id": BELL_ACTOR, "fleet_id": c.client.fleet_id,
             "job_id": c.binding["job_id"], "epoch": c.binding["epoch"], "run_id": c.run_id,
             "runtime_sha256": c.runtime_sha256, "permit_ids": [self.permit["permit_id"]], "outboxes_pending": 0}
         bell_path = c.root / "idle.json"

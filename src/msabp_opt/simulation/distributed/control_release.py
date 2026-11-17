@@ -23,11 +23,46 @@ PROFILE_SCHEMA = "msabp.supervisor-release-profile"
 PROJECT_ID = "MSABP_2"
 INSTALL_ROOT = PureWindowsPath(r"C:\ProgramData\ShorePrincess")
 
+# Reviewed physical-solver closure.  This is deliberately an explicit list,
+# never a directory scan: the same Supervisor release may serve the original
+# synthetic acceptance job or the one-point CST execution mode, while each
+# runtime still pins only the files required by its selected mode.
+CST_EXECUTION_SOURCE_FILES = (
+    "scripts/simulation/shore_supervisor_cst_princess.py",
+    "src/msabp_opt/simulation/distributed/control_cst.py",
+    "src/msabp_opt/simulation/distributed/control_cst_material.py",
+    "src/msabp_opt/simulation/distributed/control_cst_prepare.py",
+    "src/msabp_opt/simulation/distributed/case_runner_tree.py",
+    *(
+        "scripts/automation/" + name + ".py"
+        for name in (
+            "cst_build_msabp_geometry_tree",
+            "cst_build_msabp_geometry",
+            "cst_conductor_components",
+            "cst_generate_polygen",
+            "cst_run_and_export_s11",
+        )
+    ),
+    *(
+        "scripts/geometry/" + name + ".py"
+        for name in (
+            "antenna_closed_curves",
+            "antenna_outline",
+            "antenna_polygon_export",
+            "conductor_components",
+            "manufacturing",
+            "shapely_antenna_model",
+            "shapely_antenna_tree_model",
+        )
+    ),
+)
+
 # This is a reviewed declaration, never a scan of the working tree. The fixed
 # host is separately pinned by local policy: including it would make the host's
 # pin/release selection unnecessarily self-referential.
 RELEASE_SOURCE_FILES = tuple(dict.fromkeys((
     *PROJECT_SOURCE_FILES,
+    *CST_EXECUTION_SOURCE_FILES,
     # Existing preparation closure is listed explicitly to avoid a circular
     # dependency when preparation imports this module for the new profile.
     "scripts/simulation/shore_synthetic_princess.py",
@@ -175,6 +210,15 @@ def runtime_paths(profile: dict, job_id: str) -> dict[str, str]:
         "maid_state_root": str(state / "maid-state"),
         "maid_output_root": str(state / "maid-output"),
         "bell_state_root": str(state / "bell-state"),
+    }
+
+
+def cst_runtime_paths(profile: dict, job_id: str) -> dict[str, str]:
+    """Derive the fixed real-CST material path without changing old runtimes."""
+    paths = runtime_paths(profile, job_id)
+    return {
+        **paths,
+        "project_template_path": str(PureWindowsPath(paths["config_root"]) / "msa-bp.cst"),
     }
 
 

@@ -1,4 +1,4 @@
-"""Known synthetic terminal outcomes; unknown external starts never use this.
+"""Known terminal outcomes; unknown external starts never use this.
 
 The one small durable termination/tombstone record is transported as exact
 bytes. Both sides validate those bytes and the shared Shore evidence. This is
@@ -39,6 +39,8 @@ def bounded_terminal_record(record: dict) -> dict:
     record = dict(record)
     if set(record) != TERMINAL_RECORD_FIELDS:
         raise ValueError("Terminal record must have exactly the canonical provenance fields")
+    if type(record["synthetic"]) is not bool:
+        raise ValueError("Terminal record requires explicit synthetic provenance")
     message = record["error_message"]
     if message is not None and not isinstance(message, str):
         raise ValueError("Terminal error_message must be a string or null")
@@ -64,10 +66,17 @@ def bounded_terminal_record(record: dict) -> dict:
     return record
 
 
-def validate_terminal_record(data: bytes, evidence: dict, permit: dict) -> dict:
+def validate_terminal_record(
+    data: bytes,
+    evidence: dict,
+    permit: dict,
+    *,
+    expected_synthetic: bool | None = None,
+) -> dict:
     """Verify actual canonical record bytes, not an unbacked claimed digest."""
     from shore_control.crypto import canonical_json
     from shore_control.evidence import load_evidence_json, validate_evidence
+    from .control_policy import CST_MODE, control_mode
 
     validate_evidence(evidence, permit)
     if not isinstance(data, bytes) or not data:
@@ -78,8 +87,12 @@ def validate_terminal_record(data: bytes, evidence: dict, permit: dict) -> dict:
     if set(record) != TERMINAL_RECORD_FIELDS or canonical_json(record) != data:
         raise ValueError("Terminal record must have exactly the canonical provenance fields")
     outcome = evidence["outcome"]
-    if outcome not in {"failed", "not_started"} or record["synthetic"] is not True:
-        raise ValueError("Only known synthetic failed/not-started records are supported")
+    if outcome not in {"failed", "not_started"} or type(record["synthetic"]) is not bool:
+        raise ValueError("Only known failed/not-started records with explicit provenance are supported")
+    if expected_synthetic is None:
+        expected_synthetic = control_mode() != CST_MODE
+    if type(expected_synthetic) is not bool or record["synthetic"] is not expected_synthetic:
+        raise ValueError("Terminal record provenance differs from the selected workload mode")
     expected = evidence["result"]
     if (record["permit_id"] != permit["permit_id"] or record["state"] != outcome
             or record["execution_id"] != expected["execution_id"]
@@ -93,7 +106,7 @@ def validate_terminal_record(data: bytes, evidence: dict, permit: dict) -> dict:
     if outcome == "failed":
         artifact = {"path": "termination.json", "size_bytes": len(data), "sha256": actual}
         if evidence["artifacts"] != [artifact]:
-            raise ValueError("Synthetic failure evidence must include its exact termination record")
+            raise ValueError("Failure evidence must include its exact termination record")
     elif record["execution_id"] is not None or record["failure_code"] is not None:
         raise ValueError("A not-started tombstone cannot claim an execution")
     return record

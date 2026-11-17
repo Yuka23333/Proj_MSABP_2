@@ -57,6 +57,20 @@ def _canonical(raw, limit):
     return value
 
 
+def validate_workload_material(raw, *, profile, bootstrap_data, expected_binding):
+    """Select a closed validator from the canonical, hash-bound workload mode."""
+    value = _canonical(raw, MAX_MATERIAL_BYTES)
+    if value.get("mode") == MODE:
+        return validate_material(raw, profile=profile, bootstrap_data=bootstrap_data,
+                                 expected_binding=expected_binding)
+    from .control_cst_material import CST_MODE, validate_cst_material
+
+    if value.get("mode") == CST_MODE:
+        return validate_cst_material(raw, profile=profile, bootstrap_data=bootstrap_data,
+                                     expected_binding=expected_binding)
+    raise ValueError("Job material selects an unsupported workload mode")
+
+
 def verify_release_proof(proof, bootstrap, expected_binding):
     """Verify original controller/authority release evidence, without any RPC.
 
@@ -177,7 +191,8 @@ class JobMaterialService:
     """
 
     def __init__(self, *, profile, bootstrap_data, expected_binding, read_assignment,
-                 csv_data, nonce_db, read_release_proof=None):
+                 csv_data, nonce_db, read_release_proof=None, workload_mode=MODE,
+                 project_data=None):
         self._profile = validate_profile(profile)
         self._bootstrap = _local_bootstrap(self._profile, bootstrap_data)
         self._bootstrap_data = bytes(bootstrap_data)
@@ -186,11 +201,22 @@ class JobMaterialService:
             raise ValueError("Explicit read-only original assignment source required")
         if read_release_proof is not None and not callable(read_release_proof):
             raise ValueError("Release proof source must be an explicit read-only callable")
-        if (type(csv_data) is not bytes or len(csv_data) > MAX_CSV_BYTES
-                or csv_data != synthetic_csv(self._binding["job_spec"]["approved_units"])):
-            raise ValueError("Only the exact 1/4-point synthetic CSV is allowed")
+        if workload_mode == MODE:
+            if (type(csv_data) is not bytes or len(csv_data) > MAX_CSV_BYTES
+                    or csv_data != synthetic_csv(self._binding["job_spec"]["approved_units"])):
+                raise ValueError("Only the exact 1/4-point synthetic CSV is allowed")
+            if project_data is not None:
+                raise ValueError("Synthetic job material cannot include a CST project")
+        else:
+            from .control_cst_material import CST_MODE, validate_cst_csv, validate_cst_template
+
+            if workload_mode != CST_MODE or self._binding["job_spec"]["approved_units"] != 1:
+                raise ValueError("Unsupported real-CST job material scope")
+            validate_cst_csv(csv_data)
+            validate_cst_template(project_data)
         self._read_assignment = read_assignment
-        self._csv_data, self._nonce_db = csv_data, nonce_db
+        self._csv_data, self._project_data = csv_data, project_data
+        self._workload_mode, self._nonce_db = workload_mode, nonce_db
         self._lock = threading.RLock()
         self._original_bytes = None
         self._read_release_proof = read_release_proof
@@ -229,8 +255,14 @@ class JobMaterialService:
                 if len(assignment_raw) > MAX_RUNTIME_BYTES + MAX_OFFER_BYTES:
                     raise ValueError("Oversized original assignment")
                 assignment = _canonical(assignment_raw, MAX_MATERIAL_BYTES)
-                raw = encode_material(self._profile, assignment, self._csv_data)
-                verified = validate_material(raw, profile=self._profile,
+                if self._workload_mode == MODE:
+                    raw = encode_material(self._profile, assignment, self._csv_data)
+                else:
+                    from .control_cst_material import encode_cst_material
+
+                    raw = encode_cst_material(
+                        self._profile, assignment, self._csv_data, self._project_data)
+                verified = validate_workload_material(raw, profile=self._profile,
                     bootstrap_data=self._bootstrap_data, expected_binding=self._binding)
                 if self._original_bytes is not None and self._original_bytes != raw:
                     raise ValueError("Original issued material changed")
@@ -371,7 +403,7 @@ class JobMaterialClient:
             {key: offer[key] for key in MATERIAL_REQUEST_FIELDS}, MAX_MATERIAL_BYTES)
         if len(raw) != offer["material_bytes"] or _digest(raw) != offer["material_sha256"]:
             raise ValueError("Downloaded material differs from original offer bytes")
-        verified = validate_material(raw, profile=self._profile,
+        verified = validate_workload_material(raw, profile=self._profile,
             bootstrap_data=self._bootstrap_data, expected_binding=self._binding)
         if _offer(raw, verified, self._binding, offer["terminal_proof"]) != offer:
             raise ValueError("Downloaded original permit/runtime differs from offer")

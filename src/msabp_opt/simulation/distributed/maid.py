@@ -23,7 +23,7 @@ from typing import Any, Callable
 from . import case_runner
 from .http_api import ApiError, PrincessClient
 from .protocol import make_message, validate_message
-from .control_policy import CONTROL_MODES, control_mode
+from .control_policy import CONTROL_MODES, CST_MODE, control_mode
 
 
 RUNTIME_SCHEMA_VERSION = 1
@@ -229,7 +229,7 @@ def doctor(
 
         reject_external_execution("CST doctor import")
         if config.protocol_mode in CONTROL_MODES:
-            raise MaidConfigError("Shore fake-worker doctor refuses CST checks")
+            raise MaidConfigError("Shore controlled parent doctor refuses in-process CST checks")
     if require_cst and sys.version_info[:2] != (3, 11):
         raise RuntimeError(
             "CST Studio Suite 2025 Maid requires Python 3.11; "
@@ -367,11 +367,16 @@ class Maid:
             or run_csv_row is case_runner.run_csv_row
             or session is None or isinstance(session, OwnedCstSession)
         ):
+            message = (
+                "Shore controlled mode requires a Shore gate and explicitly injected executor/session"
+                if config.protocol_mode == CST_MODE
+                else "Shore synthetic mode requires a Shore gate and explicitly injected fake executor/session"
+            )
             raise MaidConfigError(
-                "Shore synthetic mode requires a Shore gate and explicitly injected fake executor/session"
+                message
             )
         if not controlled and control_worker is not None:
-            raise MaidConfigError("Shore control requires explicit synthetic protocol_mode")
+            raise MaidConfigError("Shore control requires an explicit controlled protocol_mode")
         self._run_csv_row = run_csv_row or case_runner.run_csv_row
         self.client = client or PrincessClient(config.princess_url, config.api_token)
         self.artifact_client = artifact_client or (
@@ -673,7 +678,7 @@ class Maid:
     def _run_controlled_assignment(
         self, assignment: Mapping[str, Any], row: Mapping[str, Any], row_sha256: str,
     ) -> str:
-        """Synthetic execution through Maid's normal entry with durable replay."""
+        """Controlled execution through Maid's normal entry with durable replay."""
         gate = self.control_worker
         attempt_id = str(assignment["attempt_id"])
         permit = gate.accept(assignment, run_id=self.config.run_id, worker_id=self.config.worker_id,
@@ -685,7 +690,7 @@ class Maid:
         attempt_root.mkdir(parents=True, exist_ok=True)
         with _Heartbeat(self, assignment) as heartbeat:
             if durable_result is None:
-                # Persist STARTING before even opening the injected fake session.
+                # Persist STARTING before even opening the injected session.
                 gate.start(attempt_id)
                 try:
                     project = None if self.config.dry_run else self.session.open()
@@ -700,7 +705,7 @@ class Maid:
                         local_artifact_root=self.config.output_root / "local_only",
                     )
                 except Exception as exc:
-                    # A returned synthetic exception is a confirmed termination;
+                    # A returned executor exception is a confirmed termination;
                     # BaseException/process death remains STARTING and unresolved.
                     durable_result = gate.save_result(
                         attempt_id, attempt_root / "failure", outcome="failed",

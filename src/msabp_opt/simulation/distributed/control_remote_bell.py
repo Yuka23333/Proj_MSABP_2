@@ -603,7 +603,14 @@ class BellRunner:
 
 def preflight_bell(config_path: str | Path) -> tuple[dict, Any, dict]:
     """Offline public-byte audit; no socket, daemon or private-key operation."""
-    from .control_remote_worker import RemoteSyntheticMaidConfig, _json_bytes, checked_path, preflight_worker, read_json
+    from .control_remote_worker import (
+        CST_MODE,
+        RemoteSyntheticMaidConfig,
+        _json_bytes,
+        checked_path,
+        preflight_worker,
+        read_json,
+    )
 
     config, _ = read_json(config_path)
     fields = {"schema", "schema_version", "mode", "runtime_config_path", "runtime_sha256",
@@ -620,11 +627,16 @@ def preflight_bell(config_path: str | Path) -> tuple[dict, Any, dict]:
     _require(root != Path(root.anchor), "Bell state root cannot be a filesystem root")
     protected = [Path(runtime[name]) for name in ("source_root", "shore_source_root", "state_root", "output_root")]
     protected.append(Path(runtime["worker_config_path"]).parent)
+    if runtime["mode"] == CST_MODE:
+        protected.append(Path(runtime["project_template_path"]).parent)
     for path in protected:
         _require(root != path and root not in path.parents and path not in root.parents,
                  "Bell journal requires a separate controlled state root")
-    for path in (Path(config_path), Path(config["runtime_config_path"]),
-                 Path(runtime["bootstrap_path"]), Path(runtime["csv_path"])):
+    inputs = [Path(config_path), Path(config["runtime_config_path"]),
+              Path(runtime["bootstrap_path"]), Path(runtime["csv_path"])]
+    if runtime["mode"] == CST_MODE:
+        inputs.append(Path(runtime["project_template_path"]))
+    for path in inputs:
         _require(root != path and root not in path.parents, "Bell state must not contain its input configuration")
     report = preflight_worker(runtime)
     bootstrap = report["bootstrap"]

@@ -1,4 +1,4 @@
-"""Explicit independent Maid runtime for the remote synthetic-only profile.
+"""Explicit independent Maid runtime for the pinned remote Shore profiles.
 
 Preflight is offline and never opens a private key. Only explicit live run or
 recovery entrypoints construct identity/transport. They retain Shore journals;
@@ -22,11 +22,13 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 MODE = "shore-remote-synthetic-v1"
+CST_MODE = "shore-remote-cst-v1"
 MAID_ACTOR = "coconutg2-maid"
 BELL_ACTOR = "coconutg2-bell"
 DEVICE_ID = "coconutg2"
 LOCAL_NODE_ID = "nJc1aWG7ZA11CNTRL"
 SCHEMA = "msabp.shore-remote-synthetic-maid"
+CST_SCHEMA = "msabp.shore-remote-cst-maid"
 READY_DOMAIN = "msabp.synthetic-maid-ready"
 STARTUP_DOMAIN = "msabp.synthetic-bell-startup"
 IDLE_DOMAIN = "msabp.synthetic-worker-idle"
@@ -43,11 +45,36 @@ PROJECT_SOURCE_FILES = (
         "control_failure", "control_synthetic", "control_remote_worker", "control_remote_http",
         "control_remote_bell")),
 )
+CST_PROJECT_SOURCE_FILES = tuple(dict.fromkeys((*PROJECT_SOURCE_FILES,
+    "src/msabp_opt/simulation/distributed/control_cst.py",
+    "src/msabp_opt/simulation/distributed/case_runner_tree.py",
+    "scripts/automation/cst_build_msabp_geometry_tree.py",
+    "scripts/automation/cst_build_msabp_geometry.py",
+    "scripts/automation/cst_conductor_components.py",
+    "scripts/automation/cst_generate_polygen.py",
+    "scripts/automation/cst_run_and_export_s11.py",
+    "scripts/geometry/antenna_closed_curves.py",
+    "scripts/geometry/antenna_outline.py",
+    "scripts/geometry/antenna_polygon_export.py",
+    "scripts/geometry/conductor_components.py",
+    "scripts/geometry/manufacturing.py",
+    "scripts/geometry/shapely_antenna_model.py",
+    "scripts/geometry/shapely_antenna_tree_model.py",
+)))
+CST_PYTHON_EXECUTABLE = Path(r"C:\Users\telecom\miniforge3\envs\maid\python.exe")
 SHORE_SOURCE_FILES = tuple("shore_control/" + name + ".py" for name in (
     "__init__", "authority", "client", "crypto", "evidence", "job_contract",
     "permits", "registry", "remote", "remote_identity", "rpc", "tailnet", "tailnet_rpc", "usb_identity"))
 BINDING_FIELDS = {"fleet_id", "job_id", "epoch", "host_id", "session_id",
                   "project_id", "collector_url", "data_root", "job_spec"}
+
+
+def project_source_files(mode: str) -> tuple[str, ...]:
+    if mode == MODE:
+        return PROJECT_SOURCE_FILES
+    if mode == CST_MODE:
+        return CST_PROJECT_SOURCE_FILES
+    raise ValueError("Unsupported remote Maid execution mode")
 
 
 def _absolute_path(value: str | Path) -> Path:
@@ -134,17 +161,24 @@ class RemoteSyntheticMaidConfig:
     def from_mapping(cls, raw: Mapping[str, Any], *, runtime_sha256: str | None = None,
                      runtime_path: Path | None = None):
         value = json.loads(_json_bytes(dict(raw)))
-        required = {"schema", "schema_version", "mode", "run_id", "worker_id", "local_node_id",
-                    "bootstrap_path", "bootstrap_sha256", "source_root", "source_hashes",
-                    "shore_source_root", "shore_source_hashes", "worker_config_path",
-                    "csv_path", "csv_sha256", "api_token", "binding", "state_root", "output_root"}
-        optional = {"poll_seconds", "heartbeat_seconds"}
+        common = {"schema", "schema_version", "mode", "run_id", "worker_id", "local_node_id",
+                  "bootstrap_path", "bootstrap_sha256", "source_root", "source_hashes",
+                  "shore_source_root", "shore_source_hashes", "worker_config_path",
+                  "csv_path", "csv_sha256", "api_token", "binding", "state_root", "output_root"}
+        mode = value.get("mode")
+        required = common if mode == MODE else common | {
+            "project_template_path", "project_template_sha256", "coordinate_quantum_mm",
+            "allow_disconnected_conductor", "command_timeout_seconds", "poll_seconds",
+            "heartbeat_seconds",
+        }
+        optional = {"poll_seconds", "heartbeat_seconds"} if mode == MODE else set()
         if set(value) - required - optional or required - set(value):
             raise ValueError("Unexpected or missing remote Maid runtime fields")
-        if (value["schema"] != SCHEMA or type(value["schema_version"]) is not int
-                or value["schema_version"] != 1 or value["mode"] != MODE
+        expected_schema = SCHEMA if mode == MODE else CST_SCHEMA if mode == CST_MODE else None
+        if (value["schema"] != expected_schema or type(value["schema_version"]) is not int
+                or value["schema_version"] != 1
                 or value["worker_id"] != MAID_ACTOR or value["local_node_id"] != LOCAL_NODE_ID):
-            raise ValueError("Explicit fixed remote synthetic Maid mode and actor required")
+            raise ValueError("Explicit fixed remote Maid mode, schema and actor required")
         for name in ("run_id", "api_token"):
             if type(value[name]) is not str or not value[name] or len(value[name]) > 256:
                 raise ValueError("Invalid " + name)
@@ -152,11 +186,23 @@ class RemoteSyntheticMaidConfig:
             raise ValueError("Invalid run ID")
         for name in ("bootstrap_sha256", "csv_sha256"):
             _hash(value[name], name)
+        if mode == CST_MODE:
+            _hash(value["project_template_sha256"], "project_template_sha256")
+            if (value["coordinate_quantum_mm"] != "0.01"
+                    or value["allow_disconnected_conductor"] is not False
+                    or type(value["command_timeout_seconds"]) is not int
+                    or value["command_timeout_seconds"] != 15
+                    or value["poll_seconds"] != 2
+                    or value["heartbeat_seconds"] != 5):
+                raise ValueError("CST runtime requires the fixed M3a solver parameters")
         for name in ("poll_seconds", "heartbeat_seconds"):
             if name in value and (type(value[name]) is not int or not 1 <= value[name] <= 300):
                 raise ValueError("Timings must be integer seconds in [1, 300]")
-        for name in ("bootstrap_path", "source_root", "shore_source_root", "worker_config_path",
-                     "csv_path", "state_root", "output_root"):
+        path_names = ["bootstrap_path", "source_root", "shore_source_root", "worker_config_path",
+                      "csv_path", "state_root", "output_root"]
+        if mode == CST_MODE:
+            path_names.append("project_template_path")
+        for name in path_names:
             if type(value[name]) is not str:
                 raise ValueError("Invalid path: " + name)
             # from_mapping also stages remote-host metadata locally. Filesystem
@@ -170,9 +216,7 @@ class RemoteSyntheticMaidConfig:
         for name in BINDING_FIELDS - {"epoch", "job_spec"}:
             if type(binding[name]) is not str or not binding[name]:
                 raise ValueError("Invalid job binding")
-        paths = {name: Path(value[name]) for name in (
-            "state_root", "output_root", "source_root", "shore_source_root",
-            "worker_config_path", "bootstrap_path", "csv_path")}
+        paths = {name: Path(value[name]) for name in path_names}
         for writable in (paths["state_root"], paths["output_root"]):
             if writable == Path(writable.anchor):
                 raise ValueError("Runtime root cannot be a filesystem root")
@@ -180,13 +224,16 @@ class RemoteSyntheticMaidConfig:
                               paths["worker_config_path"].parent):
                 if _under(writable, protected) or _under(protected, writable):
                     raise ValueError("Runtime state/results must be isolated from source and identity")
-            for source in (paths["bootstrap_path"], paths["csv_path"], runtime_path):
+            sources = [paths["bootstrap_path"], paths["csv_path"], runtime_path]
+            if mode == CST_MODE:
+                sources.append(paths["project_template_path"])
+            for source in sources:
                 if source is not None and _under(Path(source), writable):
                     raise ValueError("Runtime state/results must not contain input configuration")
         if (_under(paths["state_root"], paths["output_root"])
                 or _under(paths["output_root"], paths["state_root"])):
             raise ValueError("Results and durable state require disjoint roots")
-        for key, names in (("source_hashes", PROJECT_SOURCE_FILES),
+        for key, names in (("source_hashes", project_source_files(mode)),
                            ("shore_source_hashes", SHORE_SOURCE_FILES)):
             if type(value[key]) is not dict or set(value[key]) != set(names):
                 raise ValueError("Explicit complete fixed source manifest required: " + key)
@@ -237,14 +284,22 @@ def preflight_worker(config: RemoteSyntheticMaidConfig) -> dict:
     # Revalidate even a manually constructed dataclass.
     config = RemoteSyntheticMaidConfig.from_mapping(config.raw,
         runtime_sha256=config.runtime_sha256, runtime_path=config.runtime_path)
-    for name in ("bootstrap_path", "source_root", "shore_source_root", "worker_config_path",
-                 "csv_path", "state_root", "output_root"):
+    path_names = ["bootstrap_path", "source_root", "shore_source_root", "worker_config_path",
+                  "csv_path", "state_root", "output_root"]
+    if config["mode"] == CST_MODE:
+        path_names.append("project_template_path")
+    for name in path_names:
         checked_path(config[name])
     _check_sources(config)
     if sha256_file(config["bootstrap_path"]) != config["bootstrap_sha256"]:
         raise ValueError("Bootstrap SHA256 mismatch")
     if sha256_file(config["csv_path"]) != config["csv_sha256"]:
         raise ValueError("Input CSV SHA256 mismatch")
+    if config["mode"] == CST_MODE:
+        project = checked_path(config["project_template_path"])
+        if (project.name != "msa-bp.cst" or not project.is_file()
+                or sha256_file(project) != config["project_template_sha256"]):
+            raise ValueError("CST template differs from the pinned M3a input")
     if config["shore_source_root"] not in sys.path:
         sys.path.insert(0, config["shore_source_root"])
     from shore_control.remote import load_bootstrap
@@ -279,9 +334,11 @@ def preflight_worker(config: RemoteSyntheticMaidConfig) -> dict:
                                        for actor in (BELL_ACTOR, MAID_ACTOR)}):
         raise ValueError("Device-local public registration differs from bootstrap")
     _check_sources(config)
-    return {"schema": SCHEMA + "-preflight", "schema_version": 1, "mode": MODE,
-            "runtime_sha256": config.runtime_sha256, "synthetic": True,
-            "network_accessed": False, "private_keys_read": False, "cst": False,
+    synthetic = config["mode"] == MODE
+    return {"schema": config["schema"] + "-preflight", "schema_version": 1,
+            "mode": config["mode"], "runtime_sha256": config.runtime_sha256,
+            "synthetic": synthetic,
+            "network_accessed": False, "private_keys_read": False, "cst": not synthetic,
             "gpu": False, "bootstrap": bootstrap}
 
 
@@ -357,11 +414,13 @@ def _persist_new(path, value):
 
 
 @contextmanager
-def _synthetic_execution_mode():
+def _execution_mode(mode):
+    if mode not in (MODE, CST_MODE):
+        raise ValueError("Unsupported remote Maid execution mode")
     previous = os.environ.get("MSABP_CONTROL_MODE")
-    if previous not in (None, "", MODE):
+    if previous not in (None, "", mode):
         raise ValueError("Worker refuses to replace a different controlled mode")
-    os.environ["MSABP_CONTROL_MODE"] = MODE
+    os.environ["MSABP_CONTROL_MODE"] = mode
     try:
         yield
     finally:
@@ -369,6 +428,13 @@ def _synthetic_execution_mode():
             os.environ.pop("MSABP_CONTROL_MODE", None)
         else:
             os.environ["MSABP_CONTROL_MODE"] = previous
+
+
+@contextmanager
+def _synthetic_execution_mode():
+    """Compatibility wrapper retaining the original synthetic test seam."""
+    with _execution_mode(MODE):
+        yield
 
 
 def _clients(config, bootstrap, worker_client_factory, collector_client_factory, verifier_factory):
@@ -439,7 +505,7 @@ def report_worker_idle(config: RemoteSyntheticMaidConfig, *, worker_client_facto
     """Replay an existing immutable signed idle record; never start or recreate work."""
     bootstrap = preflight_worker(config)["bootstrap"]
     from shore_control.crypto import verify_object
-    with _synthetic_execution_mode(), instance_lock(config.state_root):
+    with _execution_mode(config["mode"]), instance_lock(config.state_root):
         envelope, _ = read_json(config.state_root / "idle.json")
         value = verify_object(bootstrap["workers"][MAID_ACTOR]["public_key"], IDLE_DOMAIN, envelope)
         expected = _idle_payload(config, _read_idle_permits(config))
@@ -501,14 +567,49 @@ def _verify_recovery_launch(config, bootstrap):
 def _maid_config(config, bootstrap):
     from .maid import MaidRuntimeConfig
 
-    return MaidRuntimeConfig.from_mapping({"schema_version": 1, "protocol_mode": MODE,
+    value = {"schema_version": 1, "protocol_mode": config["mode"],
         "run_id": config["run_id"], "worker_id": MAID_ACTOR,
         "princess_url": bootstrap["collector"]["endpoint"], "api_token": config["api_token"],
         "csv_path": config["csv_path"], "csv_sha256": config["csv_sha256"],
-        "project_path": str(config.state_root / "NEVER-OPEN-SYNTHETIC.cst"),
-        "output_root": config["output_root"], "dry_run": True,
+        "output_root": config["output_root"],
         "poll_seconds": config.raw.get("poll_seconds", 5),
-        "heartbeat_seconds": config.raw.get("heartbeat_seconds", 15)})
+        "heartbeat_seconds": config.raw.get("heartbeat_seconds", 15)}
+    if config["mode"] == MODE:
+        value.update(project_path=str(config.state_root / "NEVER-OPEN-SYNTHETIC.cst"), dry_run=True)
+    else:
+        value.update(project_path=config["project_template_path"], dry_run=False,
+            coordinate_quantum_mm=float(config["coordinate_quantum_mm"]),
+            allow_disconnected_conductor=config["allow_disconnected_conductor"],
+            command_timeout_seconds=config["command_timeout_seconds"])
+    return MaidRuntimeConfig.from_mapping(value)
+
+
+def _execution_dependencies(config):
+    if config["mode"] == MODE:
+        from .control_synthetic import SyntheticSession, synthetic_case
+
+        return SyntheticSession(), synthetic_case
+    if config["mode"] == CST_MODE:
+        from .control_cst import CstCaseExecutor, CstProcessPolicy, CstProcessSession
+
+        policy = CstProcessPolicy(
+            python_executable=CST_PYTHON_EXECUTABLE,
+            application_root=Path(config["source_root"]),
+            project_template=Path(config["project_template_path"]),
+            project_template_sha256=config["project_template_sha256"],
+        )
+        return CstProcessSession(), CstCaseExecutor(policy)
+    raise ValueError("Unsupported remote Maid execution mode")
+
+
+def _recovery_session(config):
+    if config["mode"] == MODE:
+        from .control_synthetic import SyntheticSession
+
+        return SyntheticSession()
+    from .control_cst import CstProcessSession
+
+    return CstProcessSession()
 
 
 def _no_recovery_execution(*_args, **_kwargs):
@@ -568,11 +669,10 @@ def recover_worker_terminal(config: RemoteSyntheticMaidConfig, *, worker_client_
     later invocation. An existing idle.json instead belongs to --report-idle.
     """
     bootstrap = preflight_worker(config)["bootstrap"]
-    from .control_synthetic import SyntheticSession
     from .control_worker import ShoreWorker
     from .maid import Maid
 
-    with _synthetic_execution_mode(), instance_lock(config.state_root):
+    with _execution_mode(config["mode"]), instance_lock(config.state_root):
         if (config.state_root / "idle.json").exists():
             raise FileExistsError("Runtime already declared idle; use --report-idle")
         _verify_recovery_launch(config, bootstrap)
@@ -581,9 +681,10 @@ def recover_worker_terminal(config: RemoteSyntheticMaidConfig, *, worker_client_
                                      collector_client_factory, verifier_factory)
         gate = ShoreWorker(config.state_root / "control", worker, bootstrap["authority_public_key"],
             binding=config["binding"], registration=bootstrap["workers"][MAID_ACTOR],
-            csv_sha256=config["csv_sha256"])
+            csv_sha256=config["csv_sha256"], synthetic=config["mode"] == MODE)
         maid = Maid(_maid_config(config, bootstrap), client=collector, artifact_client=collector,
-                    control_worker=gate, session=SyntheticSession(), run_csv_row=_no_recovery_execution)
+                    control_worker=gate, session=_recovery_session(config),
+                    run_csv_row=_no_recovery_execution)
         try:
             _check_sources(config)
             if not _recover_terminal_outboxes(config, maid, gate):
@@ -597,18 +698,17 @@ def recover_worker_terminal(config: RemoteSyntheticMaidConfig, *, worker_client_
 def run_worker(config: RemoteSyntheticMaidConfig, *, startup_record: dict,
                ready_record: str | Path, worker_client_factory=None,
                collector_client_factory=None, verifier_factory=None, maid_factory=None) -> int:
-    """Run only the fixed synthetic executor; injected dependencies are for offline tests."""
+    """Run the fixed executor selected by the signed runtime mode."""
     report = preflight_worker(config)
     bootstrap = report["bootstrap"]
     startup = verify_startup_record(startup_record, config, bootstrap)
     ready = checked_path(ready_record)
     if ready != config.state_root / ("ready." + startup["launch_id"] + ".json"):
         raise ValueError("Readiness must use the dedicated state-root launch path")
-    from .control_synthetic import SyntheticSession, synthetic_case
     from .control_worker import ShoreWorker
     from .maid import Maid
 
-    with _synthetic_execution_mode(), instance_lock(config.state_root):
+    with _execution_mode(config["mode"]), instance_lock(config.state_root):
         if (config.state_root / "idle.json").exists():
             raise FileExistsError("Runtime already declared idle; only --report-idle recovery is permitted")
         # This immutable per-wake marker prevents replay even after normal exit.
@@ -617,9 +717,10 @@ def run_worker(config: RemoteSyntheticMaidConfig, *, startup_record: dict,
                                          collector_client_factory, verifier_factory)
         gate = ShoreWorker(config.state_root / "control", worker_client, bootstrap["authority_public_key"],
             binding=config["binding"], registration=bootstrap["workers"][MAID_ACTOR],
-            csv_sha256=config["csv_sha256"])
+            csv_sha256=config["csv_sha256"], synthetic=config["mode"] == MODE)
+        session, executor = _execution_dependencies(config)
         maid = (maid_factory or Maid)(_maid_config(config, bootstrap), client=client, artifact_client=client,
-            control_worker=gate, session=SyntheticSession(), run_csv_row=synthetic_case)
+            control_worker=gate, session=session, run_csv_row=executor)
         _check_sources(config)
         permit = startup["verified_permit"]
         payload = {"schema": READY_DOMAIN, "schema_version": 1,
